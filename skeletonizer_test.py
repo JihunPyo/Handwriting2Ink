@@ -30,6 +30,124 @@ from skimage import img_as_ubyte, img_as_float
 # 1. 이미지 전처리 함수들
 # ============================================================
 
+def _order_quad_points(points):
+    """사각형 꼭짓점을 좌상, 우상, 우하, 좌하 순으로 정렬합니다."""
+    pts = np.array(points, dtype=np.float32)
+    sums = pts.sum(axis=1)
+    diffs = np.diff(pts, axis=1).reshape(-1)
+    return np.array([
+        pts[np.argmin(sums)],
+        pts[np.argmin(diffs)],
+        pts[np.argmax(sums)],
+        pts[np.argmax(diffs)],
+    ], dtype=np.float32)
+
+
+def _warp_document(image, quad):
+    """검출한 문서 사각형을 반듯하게 펴서 잘라냅니다."""
+    rect = _order_quad_points(quad.reshape(4, 2))
+    tl, tr, br, bl = rect
+
+    width_top = np.linalg.norm(tr - tl)
+    width_bottom = np.linalg.norm(br - bl)
+    height_left = np.linalg.norm(bl - tl)
+    height_right = np.linalg.norm(br - tr)
+
+    dst_w = max(1, int(max(width_top, width_bottom)))
+    dst_h = max(1, int(max(height_left, height_right)))
+
+    dst = np.array([
+        [0, 0],
+        [dst_w - 1, 0],
+        [dst_w - 1, dst_h - 1],
+        [0, dst_h - 1],
+    ], dtype=np.float32)
+
+    matrix = cv2.getPerspectiveTransform(rect, dst)
+    return cv2.warpPerspective(image, matrix, (dst_w, dst_h))
+
+
+def _detect_document_region(image):
+    """밝은 큰 사각형 문서 영역을 찾아 crop/보정합니다."""
+    h, w = image.shape[:2]
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
+
+    # 종이는 배경보다 밝으므로 밝은 영역을 우선 후보로 잡습니다.
+    _, bright_mask = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    bright_mask = cv2.morphologyEx(
+        bright_mask, cv2.MORPH_CLOSE, cv2.getStructuringElement(cv2.MORPH_RECT, (9, 9))
+    )
+
+    contours, _ = cv2.findContours(bright_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+    min_area = h * w * 0.15
+
+    for contour in sorted(contours, key=cv2.contourArea, reverse=True):
+        area = cv2.contourArea(contour)
+        if area < min_area:
+            continue
+
+        perimeter = cv2.arcLength(contour, True)
+        approx = cv2.approxPolyDP(contour, 0.03 * perimeter, True)
+        if len(approx) == 4:
+            return _warp_document(image, approx)
+
+        x, y, cw, ch = cv2.boundingRect(contour)
+        aspect = cw / max(ch, 1)
+        if 0.5 <= aspect <= 1.8:
+            return image[y:y + ch, x:x + cw].copy()
+
+    return image
+
+
+def _normalize_document_gray(gray):
+    """문서 내부 조명/질감 변화를 줄이고 글자를 강조합니다."""
+    background = cv2.GaussianBlur(gray, (0, 0), sigmaX=25, sigmaY=25)
+    normalized = cv2.divide(gray, background, scale=255)
+    normalized = cv2.normalize(normalized, None, 0, 255, cv2.NORM_MINMAX)
+    normalized = cv2.medianBlur(normalized, 3)
+    return normalized
+
+
+def _extract_text_mask(gray):
+    """흰 종이 위의 어두운 필기를 black-hat 기반으로 추출합니다."""
+    norm_gray = _normalize_document_gray(gray)
+
+    kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (19, 19))
+    blackhat = cv2.morphologyEx(norm_gray, cv2.MORPH_BLACKHAT, kernel)
+    blackhat = cv2.GaussianBlur(blackhat, (3, 3), 0)
+
+    _, otsu = cv2.threshold(blackhat, 0, 255, cv2.THRESH_BINARY + cv2.THRESH_OTSU)
+    adaptive = cv2.adaptiveThreshold(
+        blackhat, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C, cv2.THRESH_BINARY, 31, -4
+    )
+    binary = cv2.bitwise_and(otsu, adaptive)
+
+    open_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (3, 3))
+    close_kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (5, 5))
+    binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, open_kernel)
+    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, close_kernel)
+    return binary
+
+
+def _filter_small_components(binary, min_area_ratio=0.00003):
+    """손글씨보다 훨씬 작은 점성 노이즈를 제거합니다."""
+    h, w = binary.shape[:2]
+    min_area = max(12, int(h * w * min_area_ratio))
+    num_labels, labels, stats, _ = cv2.connectedComponentsWithStats(binary, connectivity=8)
+
+    filtered = np.zeros_like(binary)
+    for idx in range(1, num_labels):
+        x, y, cw, ch, area = stats[idx]
+        if area < min_area:
+            continue
+        if cw >= int(w * 0.85) or ch >= int(h * 0.85):
+            continue
+        filtered[labels == idx] = 255
+
+    return filtered
+
+
 def load_and_preprocess(image_input, target_size=None):
     """이미지를 로드하고 이진화 전처리를 수행합니다.
     (파일 경로 또는 OpenCV BGR numpy 배열 입력 지원)
@@ -49,50 +167,19 @@ def load_and_preprocess(image_input, target_size=None):
         scale = target_size / max(h, w)
         if scale < 1.0:
             img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-    
-    # 그레이스케일 변환
+
+    # 전체 장면이 아니라 문서 내부만 대상으로 전처리합니다.
+    img = _detect_document_region(img)
     gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    
-    # 노이즈 제거 (가우시안 블러)
-    blurred = cv2.GaussianBlur(gray, (3, 3), 0)
-    
-    # 이진화 (Otsu's method) - 글자가 전경(흰색)이 되도록 BINARY_INV 사용
-    _, binary = cv2.threshold(blurred, 0, 255, cv2.THRESH_BINARY_INV + cv2.THRESH_OTSU)
-    
-    # 모폴로지 연산으로 노이즈 제거
-    kernel = np.ones((2, 2), np.uint8)
-    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-    binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
-    
+    binary = _extract_text_mask(gray)
+    binary = _filter_small_components(binary)
+
     return img, gray, binary
 
 
 def adaptive_preprocess(image_path, target_size=None):
-    """적응형 이진화를 사용한 전처리 (조명이 고르지 않은 경우)"""
-    img = cv2.imread(image_path)
-    if img is None:
-        raise FileNotFoundError(f"이미지를 로드할 수 없습니다: {image_path}")
-    
-    if target_size is not None:
-        h, w = img.shape[:2]
-        scale = target_size / max(h, w)
-        if scale < 1.0:
-            img = cv2.resize(img, None, fx=scale, fy=scale, interpolation=cv2.INTER_AREA)
-    
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    blurred = cv2.GaussianBlur(gray, (5, 5), 0)
-    
-    # 적응형 이진화
-    binary = cv2.adaptiveThreshold(
-        blurred, 255, cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-        cv2.THRESH_BINARY_INV, 11, 2
-    )
-    
-    kernel = np.ones((2, 2), np.uint8)
-    binary = cv2.morphologyEx(binary, cv2.MORPH_CLOSE, kernel)
-    binary = cv2.morphologyEx(binary, cv2.MORPH_OPEN, kernel)
-    
-    return img, gray, binary
+    """문서 crop + 조명 보정 + adaptive 조합을 포함한 공통 전처리."""
+    return load_and_preprocess(image_path, target_size=target_size)
 
 
 # ============================================================
