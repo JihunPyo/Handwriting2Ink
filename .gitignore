@@ -24,14 +24,4 @@ dist/
 .vscode/
 .idea/
 
-# Local image inputs and generated outputs
-*.png
-*.jpg
-*.jpeg
-*.bmp
-*.tiff
-*.tif
-
-## 마크다운 파일 무시
-*.md
 AGENTS.md
