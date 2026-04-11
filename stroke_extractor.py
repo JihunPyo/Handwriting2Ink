@@ -84,6 +84,37 @@ def find_special_points(graph):
     return end_points, branch_points
 
 
+def split_into_connected_components(graph, pixel_set):
+    """스켈레톤 그래프를 8-연결 컴포넌트 단위로 분리합니다."""
+    visited = set()
+    components = []
+
+    for start in sorted(pixel_set):
+        if start in visited:
+            continue
+
+        queue = deque([start])
+        visited.add(start)
+        component_pixels = []
+
+        while queue:
+            node = queue.popleft()
+            component_pixels.append(node)
+            for neighbor in graph[node]:
+                if neighbor not in visited:
+                    visited.add(neighbor)
+                    queue.append(neighbor)
+
+        component_set = set(component_pixels)
+        component_graph = defaultdict(list)
+        for node in component_pixels:
+            component_graph[node] = [n for n in graph[node] if n in component_set]
+
+        components.append((component_graph, component_set))
+
+    return components
+
+
 # ============================================================
 # 2. Stroke 추출 알고리즘
 # ============================================================
@@ -116,79 +147,86 @@ def extract_strokes(skeleton, min_stroke_length=3, merge_angle=60, image_gray=No
     if not pixel_set:
         return []
     
-    # 2. 특수점 탐색
-    end_points, branch_points = find_special_points(graph)
-    
-    print(f"   총 픽셀: {len(pixel_set)}, 끝점: {len(end_points)}, 분기점: {len(branch_points)}")
-    
-    # 3. 분기점 제거하여 세그먼트로 분할
-    remaining = pixel_set - branch_points
-    
-    # 4. BFS로 연결 컴포넌트(세그먼트) 추출
-    visited = set()
-    raw_segments = []
-    
-    for start in sorted(remaining):
-        if start in visited:
-            continue
-        
-        component = []
-        queue = deque([start])
-        visited.add(start)
-        
-        while queue:
-            node = queue.popleft()
-            component.append(node)
-            for neighbor in graph[node]:
-                if neighbor in remaining and neighbor not in visited:
-                    visited.add(neighbor)
-                    queue.append(neighbor)
-        
-        raw_segments.append(component)
-    
-    print(f"   분할된 세그먼트 수: {len(raw_segments)}")
-    
-    # 5. 각 세그먼트 내 점 순서 결정
+    components = split_into_connected_components(graph, pixel_set)
+    total_end_points = 0
+    total_branch_points = 0
+    total_raw_segments = 0
     ordered_segments = []
-    for segment in raw_segments:
-        if len(segment) < 2:
-            continue
-        ordered = _trace_segment(segment, graph)
-        if ordered is not None and len(ordered) >= 2:
-            ordered_segments.append(ordered)
-    
-    # 5.5 동일선상 세그먼트 병합 (곡률 및 연속성 고려)
-    if merge_angle > 0 and branch_points:
-        # 분기점과 짧은 브릿지들을 찾아 거대한 교차로 클러스터로 묶기
-        added_bp = set(branch_points)
-        filtered_segments = []
-        for seg in ordered_segments:
-            if len(seg) < 15:
-                start_is_bp = any(_is_8_neighbor(seg[0], bp) for bp in branch_points)
-                end_is_bp = any(_is_8_neighbor(seg[-1], bp) for bp in branch_points)
-                if start_is_bp and end_is_bp:
-                    added_bp.update(seg)
-                    continue
-            filtered_segments.append(seg)
-            
-        ordered_segments = filtered_segments
-        bp_clusters = _cluster_branch_points(added_bp, graph)
-        
-        before = len(ordered_segments)
-        ordered_segments = _merge_continuous_segments(
-            ordered_segments, bp_clusters, image_gray=image_gray, angle_threshold_deg=merge_angle
-        )
-        after = len(ordered_segments)
-        if before != after:
-            print(f"   세그먼트 병합: {before} → {after} ({before - after}개 병합됨)")
-    
+
+    for component_graph, component_pixels in components:
+        end_points, branch_points = find_special_points(component_graph)
+        total_end_points += len(end_points)
+        total_branch_points += len(branch_points)
+
+        # 글자/성분 단위로 분리한 뒤 그 안에서만 세그먼트화합니다.
+        remaining = component_pixels - branch_points
+        visited = set()
+        raw_segments = []
+
+        for start in sorted(remaining):
+            if start in visited:
+                continue
+
+            component = []
+            queue = deque([start])
+            visited.add(start)
+
+            while queue:
+                node = queue.popleft()
+                component.append(node)
+                for neighbor in component_graph[node]:
+                    if neighbor in remaining and neighbor not in visited:
+                        visited.add(neighbor)
+                        queue.append(neighbor)
+
+            raw_segments.append(component)
+
+        total_raw_segments += len(raw_segments)
+
+        component_segments = []
+        for segment in raw_segments:
+            if len(segment) < 2:
+                continue
+            ordered = _trace_segment(segment, component_graph)
+            if ordered is not None and len(ordered) >= 2:
+                component_segments.append(ordered)
+
+        if merge_angle > 0 and branch_points:
+            added_bp = set(branch_points)
+            filtered_segments = []
+            for seg in component_segments:
+                if len(seg) < 15:
+                    start_is_bp = any(_is_8_neighbor(seg[0], bp) for bp in branch_points)
+                    end_is_bp = any(_is_8_neighbor(seg[-1], bp) for bp in branch_points)
+                    if start_is_bp and end_is_bp:
+                        added_bp.update(seg)
+                        continue
+                filtered_segments.append(seg)
+
+            component_segments = filtered_segments
+            bp_clusters = _cluster_branch_points(added_bp, component_graph)
+            before = len(component_segments)
+            component_segments = _merge_continuous_segments(
+                component_segments, bp_clusters, image_gray=image_gray, angle_threshold_deg=merge_angle
+            )
+            after = len(component_segments)
+            if before != after:
+                print(f"   컴포넌트 세그먼트 병합: {before} → {after} ({before - after}개 병합됨)")
+
+        ordered_segments.extend(component_segments)
+
+    print(
+        f"   총 픽셀: {len(pixel_set)}, 컴포넌트: {len(components)}, "
+        f"끝점: {total_end_points}, 분기점: {total_branch_points}, 세그먼트: {total_raw_segments}"
+    )
+
     # 6. 최소 길이 필터 + (y, x) → (x, y) 변환
     strokes = []
     for segment in ordered_segments:
         if len(segment) >= min_stroke_length:
             stroke = np.array([(x, y) for y, x in segment])
             strokes.append(stroke)
-    
+
     # 7. 획 순서 정렬 (위→아래, 왼→오른)
     strokes = order_strokes(strokes)
     
@@ -309,7 +347,7 @@ def _join_two_segments(seg_a, end_a, seg_b, end_b, bp_cluster):
     """두 세그먼트를 분기점 클러스터를 통해 연결합니다.
     
     seg_a의 end_a 쪽 끝과 seg_b의 end_b 쪽 끝을 연결합니다.
-    가장 가까운 클러스터 내 픽셀을 통해 최단 경로로 연결합니다.
+    단순 직선 연결 대신 클러스터 내부 경로를 따라 이어 shape를 보존합니다.
     """
     if end_a == 'start':
         part_a = list(reversed(seg_a))
@@ -321,8 +359,48 @@ def _join_two_segments(seg_a, end_a, seg_b, end_b, bp_cluster):
     else:
         part_b = list(seg_b)
     
-    # 두 부분을 연결하는 중간 다리 (단순히 직접 연결, 너무 세밀한 클러스터 내부 경로는 무시)
-    return part_a + part_b
+    bridge = _build_cluster_bridge(part_a[-1], part_b[0], bp_cluster)
+    merged = list(part_a)
+    for point in bridge:
+        if point != merged[-1]:
+            merged.append(point)
+    for point in part_b:
+        if point != merged[-1]:
+            merged.append(point)
+    return merged
+
+
+def _build_cluster_bridge(point_a, point_b, bp_cluster):
+    """분기점 클러스터 내부의 최단 픽셀 경로를 찾아 세그먼트를 이어줍니다."""
+    cluster_set = set(bp_cluster)
+    start_neighbors = [bp for bp in cluster_set if _is_8_neighbor(point_a, bp)]
+    end_neighbors = [bp for bp in cluster_set if _is_8_neighbor(point_b, bp)]
+
+    if not start_neighbors or not end_neighbors:
+        return []
+
+    best_path = None
+    best_length = None
+
+    for start_bp in start_neighbors:
+        queue = deque([(start_bp, [start_bp])])
+        visited = {start_bp}
+
+        while queue:
+            current, path = queue.popleft()
+            if current in end_neighbors:
+                if best_length is None or len(path) < best_length:
+                    best_path = path
+                    best_length = len(path)
+                break
+
+            for neighbor in cluster_set:
+                if neighbor in visited or not _is_8_neighbor(current, neighbor):
+                    continue
+                visited.add(neighbor)
+                queue.append((neighbor, path + [neighbor]))
+
+    return best_path or []
 
 
 def _cluster_branch_points(branch_points, graph):
@@ -519,6 +597,8 @@ def _merge_continuous_segments(segments, bp_clusters, image_gray=None, angle_thr
                                           other_sid, other_end, c_idx2))
 
     return list(segs.values())
+
+
 
 
 # ============================================================

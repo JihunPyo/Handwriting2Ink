@@ -24,4 +24,16 @@ dist/
 .vscode/
 .idea/
 
+# Local images
+*.png
+*.jpg
+*.jpeg
+*.bmp
+*.tiff
+*.tif
+
+# Local markdown notes
+*.md
+!README.md
+
 AGENTS.md
