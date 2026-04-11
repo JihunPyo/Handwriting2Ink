@@ -27,7 +27,7 @@ def _set_korean_font():
 _set_korean_font()
 
 # 기존 모듈 임포트
-from skeletonizer_test import load_and_preprocess, method_skeletonize_zhang
+from skeletonizer import load_and_preprocess, skeletonize_zhang
 from stroke_extractor import extract_strokes, STROKE_COLORS, STROKE_COLORS_BGR
 
 def save_result_image(strokes, img, save_path):
@@ -214,7 +214,7 @@ def main():
     img, gray, binary = load_and_preprocess(args.input)
     h, w = img.shape[:2]
 
-    skeleton, _, _ = method_skeletonize_zhang(binary)
+    skeleton, _, _ = skeletonize_zhang(binary)
     strokes = extract_strokes(skeleton, image_gray=gray)
     print(f"총 {len(strokes)}가닥의 획을 그립니다!")
 

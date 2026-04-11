@@ -1,7 +1,7 @@
 """
 Stroke Extractor - 스켈레톤에서 좌표열(Stroke Sequence) 추출
 ============================================================
-skeletonizer_test.py의 전처리/스켈레톤화 기능을 모듈로 사용하여,
+skeletonizer.py의 전처리/스켈레톤화 기능을 모듈로 사용하여,
 스켈레톤에서 필기 순서를 담은 좌표열을 추출하고 시각화합니다.
 
 사용법:
@@ -21,8 +21,8 @@ if matplotlib.get_backend() == 'agg':  # 이미 다른 백엔드(Agg 등)가 설
 import matplotlib.pyplot as plt
 from collections import defaultdict, deque
 
-# skeletonizer_test.py의 기능을 모듈로 사용
-from skeletonizer_test import load_and_preprocess, method_skeletonize_zhang
+# skeletonizer.py의 기능을 모듈로 사용
+from skeletonizer import load_and_preprocess, skeletonize_zhang
 
 
 # ============================================================
@@ -913,10 +913,10 @@ def main():
     
     print(f"입력 이미지: {args.input}")
     
-    # ── Step 1: 전처리 + 스켈레톤화 (skeletonizer_test 모듈 사용) ──
+    # ── Step 1: 전처리 + 스켈레톤화 (skeletonizer 모듈 사용) ──
     print("\n1. 전처리 및 스켈레톤화...")
     img, gray, binary = load_and_preprocess(args.input)
-    skeleton, elapsed, method_name = method_skeletonize_zhang(binary)
+    skeleton, elapsed, method_name = skeletonize_zhang(binary)
     print(f"   스켈레톤화 완료 ({method_name}, {elapsed * 1000:.1f}ms)")
     
     # ── Step 2: 좌표열 추출 ──

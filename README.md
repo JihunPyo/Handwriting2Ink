@@ -12,7 +12,7 @@
         │
         ▼
 ┌─────────────────────────────────┐
-│  1. 전처리 (skeletonizer_test)   │
+│  1. 전처리 (skeletonizer)        │
 │  - 그레이스케일 변환               │
 │  - Gaussian Blur 노이즈 제거      │
 │  - Otsu 이진화 (글자 = 흰색)       │
@@ -21,7 +21,7 @@
              │ binary image
              ▼
 ┌─────────────────────────────────┐
-│  2. 스켈레톤화 (skeletonizer_test)│
+│  2. 스켈레톤화 (skeletonizer)     │
 │  - Zhang-Suen Thinning          │
 │  → 1px 두께의 세선(Skeleton)      │
 └────────────┬────────────────────┘
@@ -142,22 +142,26 @@ X 좌표 순으로 우선 정렬합니다. 이 순서가 곧 마우스(펜)가 �
 
 ## 3. 파일별 기능
 
-### `skeletonizer_test.py` — 전처리 및 스켈레톤화 라이브러리
+### `skeletonizer.py` — 전처리 및 Zhang-Suen 스켈레톤화 모듈
 
-다른 파일들이 `import`해서 사용하는 **핵심 라이브러리 모듈**이자,
-독립 실행 시 다양한 스켈레톤화 방법을 비교 시각화하는 테스트 도구입니다.
+다른 파일들이 `import`해서 사용하는 **핵심 라이브러리 모듈**입니다.
+현재 파이프라인에서 실제 사용하는 Zhang-Suen 전처리/스켈레톤화만 제공합니다.
 
 | 함수 | 역할 |
 |---|---|
 | `load_and_preprocess(path)` | 이미지 로드 → 그레이스케일 → Otsu 이진화 → Morphology 정제. `img`, `gray`, `binary` 반환 |
-| `method_skeletonize_zhang(binary)` | Zhang-Suen 알고리즘으로 세선화. `skeleton`, `elapsed`, `name` 반환 |
-| `method_skeletonize_lee` / `method_thin` / `method_medial_axis` | 비교용 대체 스켈레톤화 방법들 |
-| `analyze_skeleton(skeleton, binary)` | 압축률, 연결 컴포넌트 수, 분기점/끝점 수 등 품질 지표 계산 |
-| `visualize_comparison(path)` | 모든 스켈레톤화 방법 결과를 나란히 비교하는 GUI 창 출력 |
+| `skeletonize_zhang(binary)` | Zhang-Suen 알고리즘으로 세선화. `skeleton`, `elapsed`, `name` 반환 |
 
-**독립 실행 예시:**
+---
+
+### `skeletonizer_visualize.py` — Zhang-Suen 시각화 CLI
+
+전처리 및 Zhang-Suen 결과를 빠르게 점검하기 위한 **단일 알고리즘 시각화 도구**입니다.
+`원본 / binary / skeleton / overlay / 특수점 / 메트릭`을 2x3 패널로 출력합니다.
+
+**실행 예시:**
 ```bash
-python skeletonizer_test.py --input EX_sentence.jpeg --compare --save
+python skeletonizer_visualize.py --input EX_sentence.jpeg --save
 ```
 
 ---
@@ -228,7 +232,10 @@ python simulate_drawing.py --input EX_sentence.jpeg --save --speed 5
 
 ```
 simulate_drawing.py
-    ├── skeletonizer_test.py  (load_and_preprocess, method_skeletonize_zhang)
+    ├── skeletonizer.py  (load_and_preprocess, skeletonize_zhang)
     └── stroke_extractor.py   (extract_strokes, STROKE_COLORS, STROKE_COLORS_BGR)
-            └── skeletonizer_test.py  (load_and_preprocess, method_skeletonize_zhang)
+            └── skeletonizer.py  (load_and_preprocess, skeletonize_zhang)
+
+skeletonizer_visualize.py
+    └── skeletonizer.py  (load_and_preprocess, skeletonize_zhang)
 ```
