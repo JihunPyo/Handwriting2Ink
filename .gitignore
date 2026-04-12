@@ -35,5 +35,12 @@ dist/
 # Local markdown notes
 *.md
 !README.md
+!commit_log.md
+
+# OCR pilot outputs and caches
+pilot_outputs/
+.paddlex_cache/
+.mplconfig/
+.xdg_cache/
 
 AGENTS.md
