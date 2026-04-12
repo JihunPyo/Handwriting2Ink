@@ -50,3 +50,25 @@
 - `pilot_outputs/test_2/`
 - `pilot_outputs/H2I_flowchart/`
 - `pilot_outputs/H2I_flowchart_crop1/`
+
+## 2026-04-13
+
+### Branch
+- `pilot-ocr-layout-python`
+
+### Local Asset Cleanup
+- Organized root-level image files into dedicated directories to keep the project root cleaner.
+- Created tracked placeholder files so the directory structure is preserved in Git.
+
+### Directory Layout
+- `images/inputs/`
+  - original sample inputs and cropped source images
+- `images/outputs/simulate/`
+  - `_result.png`, `_strokes_black.png`, and related simulation outputs
+- `images/outputs/skeleton/`
+  - `_skeleton_overview.png` files
+- `images/outputs/experiments/`
+  - ad-hoc experimental result images such as shape-priority variants
+
+### Notes
+- Existing `pilot_outputs/` remains unchanged because it already groups OCR pilot outputs by input name.
