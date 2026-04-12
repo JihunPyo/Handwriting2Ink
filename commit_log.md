@@ -107,3 +107,7 @@
 ### Test Result
 - `test_2` produced `225` globally shifted strokes from `7` OCR text regions.
 - The final rendered image preserves the relative layout of the original OCR crop regions.
+
+### Follow-up Adjustment
+- Updated the black stroke renderer to accept an explicit thickness override.
+- `render_pilot_strokes.py` now saves the black stroke image with `thickness=1` for easier visual inspection.

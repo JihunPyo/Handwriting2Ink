@@ -147,7 +147,12 @@ def main():
     )
 
     save_result_image(all_shifted_strokes, reference_image, str(output_path))
-    save_black_strokes_image(all_shifted_strokes, reference_image, str(output_black_path))
+    save_black_strokes_image(
+        all_shifted_strokes,
+        reference_image,
+        str(output_black_path),
+        thickness=1,
+    )
 
     summary_path = pilot_dir / "crop_stroke_composite_summary.json"
     summary_path.write_text(

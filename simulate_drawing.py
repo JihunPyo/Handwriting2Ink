@@ -99,11 +99,12 @@ def save_result_image(strokes, img, save_path):
     print(f"결과 이미지 저장 완료: {save_path}")
 
 
-def save_black_strokes_image(strokes, img, save_path):
+def save_black_strokes_image(strokes, img, save_path, thickness=None):
     """모든 획을 검은색으로 그린 이미지를 저장합니다 (색 구분 없음)."""
     h, w = img.shape[:2]
     canvas = np.ones((h, w, 3), dtype=np.uint8) * 255
-    thickness = max(2, int(max(w, h) * 0.007))
+    if thickness is None:
+        thickness = max(2, int(max(w, h) * 0.007))
     for stroke in strokes:
         if len(stroke) == 0:
             continue
