@@ -1,5 +1,5 @@
 """
-OCR 기반 text/shape 레이아웃 분리 파일럿
+OCR 기반 text/shape 레이아웃 분리
 =======================================
 
 PaddleOCR mobile 모델을 사용해 텍스트 박스를 검출하고,
@@ -27,7 +27,7 @@ from paddleocr import PaddleOCR
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="PaddleOCR 기반 text/shape 레이아웃 분리 파일럿"
+        description="PaddleOCR 기반 text/shape 레이아웃 분리"
     )
     parser.add_argument("--input", required=True, help="입력 이미지 경로")
     parser.add_argument(

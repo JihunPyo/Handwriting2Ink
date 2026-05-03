@@ -14,7 +14,7 @@ Handwriting2Ink는 손글씨나 손그림이 들어 있는 문서 이미지를 �
 
 이 코드베이스의 핵심은 `skeletonizer.py`와 `stroke_extractor.py`입니다. `skeletonizer.py`는 이미지를 binary와 skeleton으로 만들고, `stroke_extractor.py`는 skeleton graph를 stroke 좌표열로 변환합니다.
 
-`pilot_ocr_layout.py`는 전체 파이프라인의 통합 진입점이 아닙니다. 이 파일은 OCR로 text/shape crop과 `regions.json`을 만드는 선행 단계입니다. OCR crop을 실제 stroke로 바꾸고 원본 위치에 합성하는 작업은 `render_pilot_strokes.py`가 맡고 있습니다. 따라서 현재 OCR 기반 실험은 하나의 완성된 통합 파이프라인이라기보다, `pilot_ocr_layout.py` 실행 후 `render_pilot_strokes.py`를 실행하는 2단계 구조로 이해하는 것이 맞습니다.
+`ocr_layout.py`는 전체 파이프라인의 통합 진입점이 아닙니다. 이 파일은 OCR로 text/shape crop과 `regions.json`을 만드는 선행 단계입니다. OCR crop을 실제 stroke로 바꾸고 원본 위치에 합성하는 작업은 `render_strokes.py`가 맡고 있습니다. 따라서 현재 OCR 기반 실험은 하나의 완성된 통합 파이프라인이라기보다, `ocr_layout.py` 실행 후 `render_strokes.py`를 실행하는 2단계 구조로 이해하는 것이 맞습니다.
 
 ### 1.3 앞으로 가져가야 할 판단
 
@@ -44,19 +44,19 @@ image
 
 OCR 파일럿은 두 단계로 봐야 합니다.
 
-첫 번째 단계는 `pilot_ocr_layout.py`입니다. PaddleOCR mobile 모델로 text polygon과 bbox를 찾고, 가까운 text box를 묶어 `ocr_merged` region을 만듭니다. 동시에 foreground mask에서 text mask를 제외해 shape 후보도 분리합니다. 이 단계에서 중요한 산출물은 `regions.json`, `crops/text_*.png`, `crops/shape_*.png`입니다.
+첫 번째 단계는 `ocr_layout.py`입니다. PaddleOCR mobile 모델로 text polygon과 bbox를 찾고, 가까운 text box를 묶어 `ocr_merged` region을 만듭니다. 동시에 foreground mask에서 text mask를 제외해 shape 후보도 분리합니다. 이 단계에서 중요한 산출물은 `regions.json`, `crops/text_*.png`, `crops/shape_*.png`입니다.
 
-두 번째 단계는 `render_pilot_strokes.py`입니다. 이 파일은 `regions.json`에서 `ocr_merged` text bbox를 읽고, 각 `text_*.png` crop을 따로 전처리, skeletonize, stroke 추출합니다. 이후 crop-local stroke 좌표에 bbox의 `(x, y)` offset을 더해 원본 이미지 좌표계로 되돌립니다. 즉 crop 이미지들을 먼저 한 장으로 붙인 뒤 처리하는 방식이 아니라, crop별로 stroke를 만든 다음 좌표만 합성하는 방식입니다.
+두 번째 단계는 `render_strokes.py`입니다. 이 파일은 `regions.json`에서 `ocr_merged` text bbox를 읽고, 각 `text_*.png` crop을 따로 전처리, skeletonize, stroke 추출합니다. 이후 crop-local stroke 좌표에 bbox의 `(x, y)` offset을 더해 원본 이미지 좌표계로 되돌립니다. 즉 crop 이미지들을 먼저 한 장으로 붙인 뒤 처리하는 방식이 아니라, crop별로 stroke를 만든 다음 좌표만 합성하는 방식입니다.
 
 ```text
-pilot_ocr_layout.py
+ocr_layout.py
   image
     -> OCR text boxes
     -> merged text regions
     -> text/shape masks
     -> regions.json + crops
 
-render_pilot_strokes.py
+render_strokes.py
   regions.json + crops/text_*.png
     -> crop별 preprocess/skeleton/stroke
     -> bbox offset 적용
@@ -65,7 +65,7 @@ render_pilot_strokes.py
 
 ### 2.3 디버그 경로를 해석하는 방법
 
-`render_pilot_strokes.py`에는 `--save_crop_debug`, `--save_merged_debug`, `--save_stroke_data` 옵션이 있습니다.
+`render_strokes.py`에는 `--save_crop_debug`, `--save_merged_debug`, `--save_stroke_data` 옵션이 있습니다.
 
 `--save_crop_debug`는 실제로 사용하는 per-crop 처리 경로를 확인하기 위한 옵션입니다. crop별 scaled crop, binary, skeleton, overlay를 저장하므로 품질 문제를 볼 때 가장 먼저 확인해야 합니다.
 
@@ -81,15 +81,15 @@ render_pilot_strokes.py
 
 ### 3.2 실행 파일
 
-`simulate_drawing.py`는 기본 파이프라인 실행과 결과 저장을 담당합니다. `render_pilot_strokes.py`도 이 파일의 저장 함수를 재사용합니다. 따라서 stroke 두께, 3패널 결과 이미지, 흑백 결과 이미지 관련 변경은 두 파이프라인에 함께 영향을 줄 수 있습니다.
+`simulate_drawing.py`는 기본 파이프라인 실행과 결과 저장을 담당합니다. `render_strokes.py`도 이 파일의 저장 함수를 재사용합니다. 따라서 stroke 두께, 3패널 결과 이미지, 흑백 결과 이미지 관련 변경은 두 파이프라인에 함께 영향을 줄 수 있습니다.
 
 `skeletonizer_visualize.py`는 skeletonizer 품질을 확인하는 보조 CLI입니다. stroke 추출을 보기 전에 binary와 skeleton이 제대로 나오는지 확인하는 용도입니다. 전처리를 바꾸기 전후에는 이 파일로 먼저 결과를 비교하는 것이 좋습니다.
 
 ### 3.3 OCR 파일럿 파일
 
-`pilot_ocr_layout.py`는 PaddleOCR에 의존하는 OCR layout 분리 파일럿입니다. 현재 OCR 엔진은 `PP-OCRv5_mobile_det`와 `korean_PP-OCRv5_mobile_rec`를 사용합니다. 이 프로젝트에서는 인식된 문자열보다 bbox와 polygon 좌표가 더 중요합니다. 현재 단계에서는 별도 학습 없이 사전학습 모델과 OpenCV 후처리만 사용하고 있습니다.
+`ocr_layout.py`는 PaddleOCR에 의존하는 OCR layout 분리 파일럿입니다. 현재 OCR 엔진은 `PP-OCRv5_mobile_det`와 `korean_PP-OCRv5_mobile_rec`를 사용합니다. 이 프로젝트에서는 인식된 문자열보다 bbox와 polygon 좌표가 더 중요합니다. 현재 단계에서는 별도 학습 없이 사전학습 모델과 OpenCV 후처리만 사용하고 있습니다.
 
-`render_pilot_strokes.py`는 현재 실험 옵션이 가장 많이 붙어 있는 파일입니다. crop upscaling, stroke 두께, crop debug, merged debug, stroke JSON export를 모두 담당합니다. 책임이 많이 커진 상태이므로 다음 리팩토링에서는 OCR 결과 로딩, crop 전처리, stroke 변환, 렌더링, JSON export를 분리하는 것이 좋습니다.
+`render_strokes.py`는 현재 실험 옵션이 가장 많이 붙어 있는 파일입니다. crop upscaling, stroke 두께, crop debug, merged debug, stroke JSON export를 모두 담당합니다. 책임이 많이 커진 상태이므로 다음 리팩토링에서는 OCR 결과 로딩, crop 전처리, stroke 변환, 렌더링, JSON export를 분리하는 것이 좋습니다.
 
 ## Chapter 4. 실행과 운영 방법
 
@@ -107,14 +107,14 @@ conda run -n DV python simulate_drawing.py \
 OCR 파일럿은 아래 순서로 실행합니다.
 
 ```bash
-conda run -n DV python pilot_ocr_layout.py \
+conda run -n DV python ocr_layout.py \
   --input images/inputs/H2I_flowchart.jpeg \
   --save_crops \
   --debug
 ```
 
 ```bash
-conda run -n DV python render_pilot_strokes.py \
+conda run -n DV python render_strokes.py \
   --pilot_dir pilot_outputs/H2I_flowchart \
   --crop_scale 2.0 \
   --black_thickness 2 \
@@ -130,8 +130,8 @@ Markdown도 기본적으로 무시하지만 `README.md`, `commit_log.md`, `HANDO
 
 ### 4.3 다음 리팩토링 권장 방향
 
-가장 먼저 상위 orchestration 계층을 만드는 것을 권장합니다. 예를 들어 `pipeline.py`나 `run_ocr_stroke_pipeline.py`가 `pilot_ocr_layout.py`와 `render_pilot_strokes.py`의 흐름을 하나로 묶으면, 현재의 2단계 실행 구조가 훨씬 명확해집니다.
+가장 먼저 상위 orchestration 계층을 만드는 것을 권장합니다. 예를 들어 `pipeline.py`나 `run_ocr_stroke_pipeline.py`가 `ocr_layout.py`와 `render_strokes.py`의 흐름을 하나로 묶으면, 현재의 2단계 실행 구조가 훨씬 명확해집니다.
 
-그 다음은 `render_pilot_strokes.py`를 분리하는 작업입니다. 지금 이 파일은 CLI, region 로딩, crop preprocessing, stroke extraction, rendering, debug export, JSON export를 모두 담당합니다. 리팩토링 초기에는 기능을 바꾸지 말고 함수와 책임만 분리하는 방식이 안전합니다.
+그 다음은 `render_strokes.py`를 분리하는 작업입니다. 지금 이 파일은 CLI, region 로딩, crop preprocessing, stroke extraction, rendering, debug export, JSON export를 모두 담당합니다. 리팩토링 초기에는 기능을 바꾸지 말고 함수와 책임만 분리하는 방식이 안전합니다.
 
 마지막으로 stroke 품질 개선은 별도 작업으로 분리하는 것이 좋습니다. 품질 개선은 단순 리팩토링이 아니라 알고리즘 변경입니다. 특히 `stroke_extractor.py`의 branch point 처리와 segment merge scoring을 바꿀 때는 crop별 binary/skeleton debug 이미지를 먼저 저장하고, 같은 입력에 대해 변경 전후를 비교해야 합니다.

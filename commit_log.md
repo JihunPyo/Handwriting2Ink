@@ -173,3 +173,58 @@
 
 ### Purpose
 - Make the handoff document read more naturally for a successor without changing the documented architecture or recommendations.
+
+## 2026-05-04
+
+### Branch
+- `main`
+
+### Changes
+- Renamed `pilot_ocr_layout.py` to `ocr_layout.py`.
+- Renamed `render_pilot_strokes.py` to `render_strokes.py`.
+- Updated current README and handoff references to use the new script names.
+
+### Purpose
+- Remove the pilot label from script filenames now that the OCR layout and crop stroke rendering flow has been merged into `main`.
+
+## 2026-05-04
+
+### Branch
+- `main`
+
+### Changes
+- Added `pipeline.py` as the top-level OCR-to-stroke orchestrator.
+- The new pipeline runs `ocr_layout.py` first and then `render_strokes.py` with shared output directory settings.
+- Existing OCR layout and stroke rendering stage implementations remain unchanged.
+
+### Purpose
+- Introduce a single top-level entry point before deeper refactoring.
+- Keep current behavior stable while making the two-stage OCR crop stroke workflow explicit.
+
+## 2026-05-04
+
+### Branch
+- `feature-ocr-raw-stroke-option`
+
+### Changes
+- Added `--region_source` to `render_strokes.py` with `ocr_merged` as the default and `ocr_raw` as an experimental option.
+- `ocr_raw` mode crops directly from the resized reference image using raw OCR bbox metadata, so it does not require separate raw crop image files from `ocr_layout.py`.
+- Added `--region_source` passthrough to `pipeline.py`.
+- Raw-mode output filenames include `_ocr_raw` to avoid overwriting merged-mode results.
+
+### Purpose
+- Compare stroke quality between merged OCR text regions and raw OCR text boxes without changing the default pipeline behavior.
+
+## 2026-05-04
+
+### Branch
+- `feature-ocr-raw-stroke-option`
+
+### Changes
+- Updated `render_strokes.py` so final stroke composites always include both selected text regions and `shape` regions from `regions.json`.
+- Removed the optional shape-rendering flag approach; shape rendering is now the default and only behavior for final composites.
+- Shape strokes are generated from existing `crops/shape_*.png` when available, otherwise from the region bbox on the resized reference image.
+- `pipeline.py` continues to pass only text region source selection through `--region_source`; shape regions are included automatically.
+
+### Purpose
+- Restore diagrams, arrows, boxes, and other non-text components together with text strokes without requiring an extra CLI option.

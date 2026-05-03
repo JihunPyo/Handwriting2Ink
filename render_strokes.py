@@ -17,12 +17,12 @@ from stroke_extractor import extract_strokes
 
 def parse_args():
     parser = argparse.ArgumentParser(
-        description="OCR pilot text crop들을 stroke로 변환한 뒤 원래 위치에 맞춰 전체 캔버스에 렌더링합니다."
+        description="OCR text와 shape region을 stroke로 변환한 뒤 원래 위치에 맞춰 전체 캔버스에 렌더링합니다."
     )
     parser.add_argument(
         "--pilot_dir",
         required=True,
-        help="pilot_outputs/<name> 디렉토리 경로",
+        help="OCR layout 출력 디렉토리 경로",
     )
     parser.add_argument(
         "--output",
@@ -33,6 +33,12 @@ def parse_args():
         "--output_black",
         default=None,
         help="흑백 stroke 이미지 경로 (기본: <pilot_dir>/crop_stroke_composite_black.png)",
+    )
+    parser.add_argument(
+        "--region_source",
+        choices=("ocr_merged", "ocr_raw"),
+        default="ocr_merged",
+        help="stroke로 변환할 text region 소스. shape region은 항상 함께 포함됩니다. (기본: ocr_merged)",
     )
     parser.add_argument(
         "--crop_scale",
@@ -87,44 +93,73 @@ def parse_args():
     return parser.parse_args()
 
 
-def load_regions(pilot_dir: Path):
+def load_regions(pilot_dir: Path, region_source: str):
     data = json.loads((pilot_dir / "regions.json").read_text(encoding="utf-8"))
     regions = [
         region
         for region in data["regions"]
-        if region["type"] == "text" and region["source"] == "ocr_merged"
+        if region["type"] == "text" and region["source"] == region_source
     ]
     return data, regions
 
 
-def collect_crop_specs(data: dict, pilot_dir: Path, mode: str):
+def make_text_crop_spec(region: dict, index: int, pilot_dir: Path, region_source: str):
+    crop_path = None
+    if region_source == "ocr_merged":
+        crop_path = pilot_dir / "crops" / f"text_{index:03d}.png"
+
+    return {
+        "type": "text",
+        "source": region_source,
+        "index": index,
+        "bbox": region["bbox"],
+        "crop_path": crop_path,
+        "region": region,
+    }
+
+
+def make_shape_crop_spec(region: dict, index: int, pilot_dir: Path):
+    return {
+        "type": "shape",
+        "source": "cv_component",
+        "index": index,
+        "bbox": region["bbox"],
+        "crop_path": pilot_dir / "crops" / f"shape_{index:03d}.png",
+        "region": region,
+    }
+
+
+def collect_target_crop_specs(data: dict, pilot_dir: Path, region_source: str):
     specs = []
     text_regions = [
         region
         for region in data["regions"]
-        if region["type"] == "text" and region["source"] == "ocr_merged"
+        if region["type"] == "text" and region["source"] == region_source
     ]
     for index, region in enumerate(text_regions, start=1):
-        specs.append(
-            {
-                "type": "text",
-                "index": index,
-                "bbox": region["bbox"],
-                "crop_path": pilot_dir / "crops" / f"text_{index:03d}.png",
-            }
-        )
+        specs.append(make_text_crop_spec(region, index, pilot_dir, region_source))
+
+    shape_regions = [region for region in data["regions"] if region["type"] == "shape"]
+    for index, region in enumerate(shape_regions, start=1):
+        specs.append(make_shape_crop_spec(region, index, pilot_dir))
+
+    return specs
+
+
+def collect_crop_specs(data: dict, pilot_dir: Path, mode: str, region_source: str):
+    specs = []
+    text_regions = [
+        region
+        for region in data["regions"]
+        if region["type"] == "text" and region["source"] == region_source
+    ]
+    for index, region in enumerate(text_regions, start=1):
+        specs.append(make_text_crop_spec(region, index, pilot_dir, region_source))
 
     if mode == "all":
         shape_regions = [region for region in data["regions"] if region["type"] == "shape"]
         for index, region in enumerate(shape_regions, start=1):
-            specs.append(
-                {
-                    "type": "shape",
-                    "index": index,
-                    "bbox": region["bbox"],
-                    "crop_path": pilot_dir / "crops" / f"shape_{index:03d}.png",
-                }
-            )
+            specs.append(make_shape_crop_spec(region, index, pilot_dir))
 
     return specs
 
@@ -168,6 +203,35 @@ def load_reference_image(data: dict) -> np.ndarray:
     return image
 
 
+def crop_image_by_bbox(image: np.ndarray, bbox):
+    x, y, w, h = [int(value) for value in bbox]
+    if w <= 0 or h <= 0:
+        raise ValueError(f"잘못된 bbox입니다: {bbox}")
+
+    image_h, image_w = image.shape[:2]
+    x0, y0 = max(0, x), max(0, y)
+    x1, y1 = min(image_w, x + w), min(image_h, y + h)
+    if x0 >= x1 or y0 >= y1:
+        raise ValueError(f"이미지 범위를 벗어난 bbox입니다: {bbox}")
+    return image[y0:y1, x0:x1]
+
+
+def read_crop_image(spec: dict, reference_image: np.ndarray):
+    crop_path = spec.get("crop_path")
+    if crop_path and Path(crop_path).exists():
+        crop_image = cv2.imread(str(crop_path))
+        if crop_image is None:
+            raise FileNotFoundError(f"crop 이미지를 읽을 수 없습니다: {crop_path}")
+        return crop_image
+
+    return crop_image_by_bbox(reference_image, spec["bbox"])
+
+
+def crop_path_to_string(spec: dict):
+    crop_path = spec.get("crop_path")
+    return str(crop_path) if crop_path else None
+
+
 def upscale_crop(crop_image: np.ndarray, scale: float) -> np.ndarray:
     if scale <= 1.0:
         return crop_image
@@ -194,18 +258,21 @@ def downscale_strokes(strokes, scale: float):
     return downscaled
 
 
-def preprocess_crop(crop_path: Path, crop_scale: float):
-    crop_image = cv2.imread(str(crop_path))
-    if crop_image is None:
-        raise FileNotFoundError(f"crop 이미지를 읽을 수 없습니다: {crop_path}")
+def preprocess_crop_image(crop_image: np.ndarray, crop_scale: float):
     scaled_crop = upscale_crop(crop_image, crop_scale)
     _, gray, binary = load_and_preprocess(scaled_crop)
     skeleton, _, _ = skeletonize_zhang(binary)
+    return scaled_crop, gray, binary, skeleton
+
+
+def preprocess_crop_spec(spec: dict, reference_image: np.ndarray, crop_scale: float):
+    crop_image = read_crop_image(spec, reference_image)
+    scaled_crop, gray, binary, skeleton = preprocess_crop_image(crop_image, crop_scale)
     return crop_image, scaled_crop, gray, binary, skeleton
 
 
-def extract_crop_strokes(crop_path: Path, crop_scale: float):
-    _, _, gray, binary, skeleton = preprocess_crop(crop_path, crop_scale)
+def extract_crop_strokes(spec: dict, reference_image: np.ndarray, crop_scale: float):
+    _, _, gray, binary, skeleton = preprocess_crop_spec(spec, reference_image, crop_scale)
     strokes = extract_strokes(skeleton, image_gray=gray)
     return downscale_strokes(strokes, crop_scale)
 
@@ -222,16 +289,30 @@ def create_skeleton_overlay(binary: np.ndarray, skeleton: np.ndarray):
     return overlay
 
 
-def save_crop_debug_outputs(pilot_dir: Path, crop_specs, crop_scale: float):
-    debug_dir = pilot_dir / f"crop_debug_scale{crop_scale:g}"
+def crop_debug_prefix(spec: dict):
+    if spec["type"] == "shape":
+        return f"shape_{spec['index']:03d}"
+    source_label = "raw" if spec.get("source") == "ocr_raw" else "merged"
+    return f"text_{source_label}_{spec['index']:03d}"
+
+
+def save_crop_debug_outputs(
+    pilot_dir: Path,
+    crop_specs,
+    reference_image: np.ndarray,
+    crop_scale: float,
+    region_source: str,
+):
+    debug_dir = pilot_dir / f"crop_debug_{region_source}_scale{crop_scale:g}"
     debug_dir.mkdir(parents=True, exist_ok=True)
 
     summary = []
     for spec in crop_specs:
-        prefix = f"{spec['type']}_{spec['index']:03d}"
+        prefix = crop_debug_prefix(spec)
         try:
-            _, scaled_crop, gray, binary, skeleton = preprocess_crop(
-                spec["crop_path"],
+            _, scaled_crop, gray, binary, skeleton = preprocess_crop_spec(
+                spec,
+                reference_image,
                 crop_scale,
             )
         except FileNotFoundError as exc:
@@ -258,7 +339,8 @@ def save_crop_debug_outputs(pilot_dir: Path, crop_specs, crop_scale: float):
                 "type": spec["type"],
                 "index": spec["index"],
                 "bbox": spec["bbox"],
-                "crop_path": str(spec["crop_path"]),
+                "crop_path": crop_path_to_string(spec),
+                "source": spec.get("source"),
                 "crop_scale": crop_scale,
                 "scaled_size": [int(scaled_crop.shape[1]), int(scaled_crop.shape[0])],
                 "stroke_count": len(strokes),
@@ -276,6 +358,7 @@ def save_crop_debug_outputs(pilot_dir: Path, crop_specs, crop_scale: float):
     summary_path.write_text(
         json.dumps(
             {
+                "region_source": region_source,
                 "crop_scale": crop_scale,
                 "crop_count": len(summary),
                 "crops": summary,
@@ -314,9 +397,10 @@ def build_merged_crop_canvas(reference_image: np.ndarray, crop_specs):
     canvas = np.ones_like(reference_image) * 255
     pasted = []
     for spec in crop_specs:
-        crop = cv2.imread(str(spec["crop_path"]))
-        if crop is None:
-            print(f"[warn] crop 이미지를 읽을 수 없어 건너뜁니다: {spec['crop_path']}")
+        try:
+            crop = read_crop_image(spec, reference_image)
+        except (FileNotFoundError, ValueError) as exc:
+            print(f"[warn] {exc}")
             continue
         paste_crop(canvas, crop, spec["bbox"])
         pasted.append(
@@ -324,7 +408,8 @@ def build_merged_crop_canvas(reference_image: np.ndarray, crop_specs):
                 "type": spec["type"],
                 "index": spec["index"],
                 "bbox": spec["bbox"],
-                "crop_path": str(spec["crop_path"]),
+                "crop_path": crop_path_to_string(spec),
+                "source": spec.get("source"),
             }
         )
     return canvas, pasted
@@ -335,11 +420,13 @@ def save_merged_debug_outputs(
     reference_image: np.ndarray,
     crop_specs,
     mode: str,
+    region_source: str,
     black_thickness: int,
     result_thickness,
 ):
     merged_canvas, pasted = build_merged_crop_canvas(reference_image, crop_specs)
-    output_prefix = pilot_dir / f"merged_{mode}_crops"
+    prefix_label = mode if region_source == "ocr_merged" else f"{region_source}_{mode}"
+    output_prefix = pilot_dir / f"merged_{prefix_label}_crops"
 
     merged_path = output_prefix.with_name(f"{output_prefix.name}_canvas.png")
     binary_path = output_prefix.with_name(f"{output_prefix.name}_binary.png")
@@ -372,6 +459,7 @@ def save_merged_debug_outputs(
         json.dumps(
             {
                 "mode": mode,
+                "region_source": region_source,
                 "merged_canvas": str(merged_path),
                 "binary_preview": str(binary_path),
                 "skeleton_preview": str(skeleton_path),
@@ -412,12 +500,16 @@ def save_stroke_data(
     output_path: Path,
     data: dict,
     crop_scale: float,
-    text_regions,
+    region_source: str,
+    target_specs,
     region_stroke_records,
 ):
     flat_strokes = []
     for region_record in region_stroke_records:
         flat_strokes.extend(region_record["strokes"])
+
+    text_region_count = sum(1 for spec in target_specs if spec["type"] == "text")
+    shape_region_count = sum(1 for spec in target_specs if spec["type"] == "shape")
 
     output_path.write_text(
         json.dumps(
@@ -425,12 +517,16 @@ def save_stroke_data(
                 "input_path": data["input_path"],
                 "scale": data.get("scale", 1.0),
                 "crop_scale": crop_scale,
+                "region_source": region_source,
+                "shape_rendering": "always",
                 "coordinate_system": {
                     "local_points": "crop-local coordinates after optional upscaling/downscaling",
-                    "global_points": "reference image coordinates after adding the OCR merged bbox offset",
+                    "global_points": "reference image coordinates after adding the selected region bbox offset",
                     "point_order": "[x, y]",
                 },
-                "text_region_count": len(text_regions),
+                "region_count": len(target_specs),
+                "text_region_count": text_region_count,
+                "shape_region_count": shape_region_count,
                 "total_stroke_count": len(flat_strokes),
                 "regions": region_stroke_records,
                 "strokes": flat_strokes,
@@ -449,32 +545,53 @@ def main():
     if not pilot_dir.exists():
         raise FileNotFoundError(f"pilot 디렉토리가 없습니다: {pilot_dir}")
 
-    data, text_regions = load_regions(pilot_dir)
+    data, _ = load_regions(pilot_dir, args.region_source)
     reference_image = load_reference_image(data)
+    target_specs = collect_target_crop_specs(
+        data,
+        pilot_dir,
+        args.region_source,
+    )
 
     if args.save_merged_debug:
-        crop_specs = collect_crop_specs(data, pilot_dir, args.merged_debug_mode)
+        crop_specs = collect_crop_specs(
+            data,
+            pilot_dir,
+            args.merged_debug_mode,
+            args.region_source,
+        )
         save_merged_debug_outputs(
             pilot_dir,
             reference_image,
             crop_specs,
             args.merged_debug_mode,
+            args.region_source,
             args.black_thickness,
             args.result_thickness,
         )
 
     if args.save_crop_debug:
-        crop_specs = collect_crop_specs(data, pilot_dir, args.crop_debug_mode)
-        save_crop_debug_outputs(pilot_dir, crop_specs, args.crop_scale)
+        crop_specs = collect_crop_specs(
+            data,
+            pilot_dir,
+            args.crop_debug_mode,
+            args.region_source,
+        )
+        save_crop_debug_outputs(
+            pilot_dir,
+            crop_specs,
+            reference_image,
+            args.crop_scale,
+            args.region_source,
+        )
 
     all_shifted_strokes = []
     summary = []
     region_stroke_records = []
     global_stroke_id = 1
-    for index, region in enumerate(text_regions, start=1):
-        crop_path = pilot_dir / "crops" / f"text_{index:03d}.png"
-        bbox = region["bbox"]
-        strokes = extract_crop_strokes(crop_path, args.crop_scale)
+    for region_number, spec in enumerate(target_specs, start=1):
+        bbox = spec["bbox"]
+        strokes = extract_crop_strokes(spec, reference_image, args.crop_scale)
         shifted_strokes = offset_strokes(strokes, bbox)
         all_shifted_strokes.extend(shifted_strokes)
 
@@ -483,7 +600,9 @@ def main():
             stroke_records.append(
                 {
                     "id": global_stroke_id,
-                    "region_index": index,
+                    "region_number": region_number,
+                    "region_type": spec["type"],
+                    "region_index": spec["index"],
                     "bbox": bbox,
                     "point_count": int(len(shifted_stroke)),
                     "local_points": stroke_to_points(local_stroke),
@@ -494,35 +613,42 @@ def main():
 
         region_stroke_records.append(
             {
-                "index": index,
+                "region_number": region_number,
+                "type": spec["type"],
+                "index": spec["index"],
                 "bbox": bbox,
-                "crop_path": str(crop_path),
+                "crop_path": crop_path_to_string(spec),
+                "source": spec.get("source"),
                 "stroke_count": len(stroke_records),
                 "strokes": stroke_records,
             }
         )
         summary.append(
             {
-                "index": index,
+                "region_number": region_number,
+                "type": spec["type"],
+                "index": spec["index"],
                 "bbox": bbox,
-                "crop_path": str(crop_path),
+                "crop_path": crop_path_to_string(spec),
+                "source": spec.get("source"),
                 "crop_scale": args.crop_scale,
                 "stroke_count": len(shifted_strokes),
             }
         )
         print(
-            f"[region {index:02d}] bbox={bbox} local_strokes={len(strokes)} shifted_strokes={len(shifted_strokes)}"
+            f"[region {region_number:02d}] type={spec['type']} index={spec['index']} bbox={bbox} local_strokes={len(strokes)} shifted_strokes={len(shifted_strokes)}"
         )
 
+    output_suffix = "" if args.region_source == "ocr_merged" else f"_{args.region_source}"
     output_path = (
         Path(args.output)
         if args.output
-        else pilot_dir / "crop_stroke_composite_result.png"
+        else pilot_dir / f"crop_stroke_composite{output_suffix}_result.png"
     )
     output_black_path = (
         Path(args.output_black)
         if args.output_black
-        else pilot_dir / "crop_stroke_composite_black.png"
+        else pilot_dir / f"crop_stroke_composite{output_suffix}_black.png"
     )
 
     save_result_image(
@@ -538,7 +664,7 @@ def main():
         thickness=args.black_thickness,
     )
 
-    summary_path = pilot_dir / "crop_stroke_composite_summary.json"
+    summary_path = pilot_dir / f"crop_stroke_composite{output_suffix}_summary.json"
     summary_path.write_text(
         json.dumps(
             {
@@ -546,9 +672,13 @@ def main():
                 "input_path": data["input_path"],
                 "scale": data.get("scale", 1.0),
                 "crop_scale": args.crop_scale,
+                "region_source": args.region_source,
+                "shape_rendering": "always",
                 "result_thickness": args.result_thickness,
                 "black_thickness": args.black_thickness,
-                "text_region_count": len(text_regions),
+                "region_count": len(target_specs),
+                "text_region_count": sum(1 for spec in target_specs if spec["type"] == "text"),
+                "shape_region_count": sum(1 for spec in target_specs if spec["type"] == "shape"),
                 "total_stroke_count": len(all_shifted_strokes),
                 "regions": summary,
             },
@@ -562,17 +692,21 @@ def main():
         stroke_data_path = (
             Path(args.stroke_data_output)
             if args.stroke_data_output
-            else pilot_dir / "crop_stroke_composite_strokes.json"
+            else pilot_dir / f"crop_stroke_composite{output_suffix}_strokes.json"
         )
         save_stroke_data(
             stroke_data_path,
             data,
             args.crop_scale,
-            text_regions,
+            args.region_source,
+            target_specs,
             region_stroke_records,
         )
 
-    print(f"text region count: {len(text_regions)}")
+    print(f"region source: {args.region_source}")
+    print(f"region count: {len(target_specs)}")
+    print(f"text region count: {sum(1 for spec in target_specs if spec['type'] == 'text')}")
+    print(f"shape region count: {sum(1 for spec in target_specs if spec['type'] == 'shape')}")
     print(f"total shifted stroke count: {len(all_shifted_strokes)}")
     print(f"summary saved: {summary_path}")
 

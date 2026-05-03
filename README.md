@@ -59,12 +59,12 @@ conda run -n DV python simulate_drawing.py \
 
 ## 3. OCR Layout 파일럿
 
-`pilot_ocr_layout.py`는 PaddleOCR mobile 모델로 text bbox를 찾고, text mask를 제외한 전경에서 shape 후보를 분리합니다.
+`ocr_layout.py`는 PaddleOCR mobile 모델로 text bbox를 찾고, text mask를 제외한 전경에서 shape 후보를 분리합니다.
 
 실행 예시:
 
 ```bash
-conda run -n DV python pilot_ocr_layout.py \
+conda run -n DV python ocr_layout.py \
   --input images/inputs/H2I_flowchart.jpeg \
   --save_crops \
   --debug
@@ -85,12 +85,12 @@ conda run -n DV python pilot_ocr_layout.py \
 
 ## 4. OCR Crop Stroke 합성
 
-`render_pilot_strokes.py`는 OCR 파일럿 결과의 `ocr_merged` text crop을 각각 stroke로 변환한 뒤, 각 crop의 bbox offset을 더해 원본 이미지 위치에 다시 배치합니다.
+`render_strokes.py`는 OCR 파일럿 결과의 `ocr_merged` text crop을 각각 stroke로 변환한 뒤, 각 crop의 bbox offset을 더해 원본 이미지 위치에 다시 배치합니다.
 
 기본 실행:
 
 ```bash
-conda run -n DV python render_pilot_strokes.py \
+conda run -n DV python render_strokes.py \
   --pilot_dir pilot_outputs/H2I_flowchart \
   --crop_scale 2.0 \
   --black_thickness 2
@@ -99,7 +99,7 @@ conda run -n DV python render_pilot_strokes.py \
 디버그 포함 실행:
 
 ```bash
-conda run -n DV python render_pilot_strokes.py \
+conda run -n DV python render_strokes.py \
   --pilot_dir pilot_outputs/H2I_flowchart \
   --crop_scale 2.0 \
   --black_thickness 2 \
@@ -144,8 +144,8 @@ conda run -n DV python skeletonizer_visualize.py \
 | `stroke_extractor.py` | skeleton graph 분석 및 stroke 좌표열 추출 |
 | `simulate_drawing.py` | 기본 파이프라인 실행, 결과 이미지 저장, Turtle 애니메이션 |
 | `skeletonizer_visualize.py` | skeletonizer 결과 시각화 CLI |
-| `pilot_ocr_layout.py` | OCR 기반 text/shape layout 분리 파일럿 |
-| `render_pilot_strokes.py` | OCR text crop별 stroke 추출 후 원위치 합성 |
+| `ocr_layout.py` | OCR 기반 text/shape layout 분리 파일럿 |
+| `render_strokes.py` | OCR text crop별 stroke 추출 후 원위치 합성 |
 | `commit_log.md` | 실험/변경 기록 |
 
 ---
