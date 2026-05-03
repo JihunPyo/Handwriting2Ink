@@ -36,6 +36,7 @@ dist/
 *.md
 !README.md
 !commit_log.md
+!HANDOFF.md
 
 # OCR pilot outputs and caches
 pilot_outputs/

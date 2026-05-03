@@ -150,3 +150,15 @@
 
 ### Purpose
 - Prepare the repository for GitHub remote publication with an accurate project overview and runnable command examples.
+
+## 2026-05-04
+
+### Branch
+- `main`
+
+### Changes
+- Added `HANDOFF.md` for successor handoff.
+- Updated `.gitignore` so `HANDOFF.md` is tracked despite the general local Markdown ignore rule.
+
+### Purpose
+- Capture the current architecture, pipeline responsibilities, operating commands, and refactoring direction before starting the next refactor.
