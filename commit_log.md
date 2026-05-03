@@ -162,3 +162,14 @@
 
 ### Purpose
 - Capture the current architecture, pipeline responsibilities, operating commands, and refactoring direction before starting the next refactor.
+
+## 2026-05-04
+
+### Branch
+- `main`
+
+### Changes
+- Revised `HANDOFF.md` wording while preserving its chapter-section structure and technical content.
+
+### Purpose
+- Make the handoff document read more naturally for a successor without changing the documented architecture or recommendations.
