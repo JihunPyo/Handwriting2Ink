@@ -138,3 +138,15 @@
 - `simulate_drawing.save_result_image` remains backward-compatible; omitted thickness still uses the previous automatic canvas-size-based value.
 - Added `--save_stroke_data` and `--stroke_data_output` to export restored strokes as JSON coordinate sequences.
 - The exported stroke data includes both crop-local coordinates and global coordinates after OCR bbox offsetting.
+
+## 2026-05-03
+
+### Branch
+- `main`
+
+### Changes
+- Updated `README.md` to match the current merged main branch.
+- Documented the base skeleton/stroke pipeline, OCR layout pilot, OCR crop stroke renderer, debug options, and local artifact policy.
+
+### Purpose
+- Prepare the repository for GitHub remote publication with an accurate project overview and runnable command examples.
