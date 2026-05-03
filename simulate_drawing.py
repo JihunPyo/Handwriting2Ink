@@ -30,7 +30,7 @@ _set_korean_font()
 from skeletonizer import load_and_preprocess, skeletonize_zhang
 from stroke_extractor import extract_strokes, STROKE_COLORS, STROKE_COLORS_BGR
 
-def save_result_image(strokes, img, save_path):
+def save_result_image(strokes, img, save_path, thickness=None):
     """3패널 결과 이미지를 저장합니다.
 
     [패널 1] 원본 이미지
@@ -45,7 +45,12 @@ def save_result_image(strokes, img, save_path):
     # 원본을 약간 밝게 처리해 획이 잘 보이도록
     base_overlay = cv2.addWeighted(orig_rgb, 0.45,
                                    np.ones_like(orig_rgb) * 255, 0.55, 0)
-    thickness_ov = max(2, int(max(w, h) * 0.006))
+    if thickness is None:
+        thickness_ov = max(2, int(max(w, h) * 0.006))
+        thickness_re = max(2, int(max(w, h) * 0.007))
+    else:
+        thickness_ov = max(1, int(thickness))
+        thickness_re = max(1, int(thickness))
     for i, stroke in enumerate(strokes):
         if len(stroke) == 0:
             continue
@@ -62,7 +67,6 @@ def save_result_image(strokes, img, save_path):
 
     # ── 패널 3: 복원 이미지 (흰 배경 + 색상 획) ──
     restored = np.ones((h, w, 3), dtype=np.uint8) * 255
-    thickness_re = max(2, int(max(w, h) * 0.007))
     for i, stroke in enumerate(strokes):
         if len(stroke) == 0:
             continue

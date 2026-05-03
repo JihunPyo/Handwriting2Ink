@@ -111,3 +111,30 @@
 ### Follow-up Adjustment
 - Updated the black stroke renderer to accept an explicit thickness override.
 - `render_pilot_strokes.py` now saves the black stroke image with `thickness=1` for easier visual inspection.
+
+## 2026-04-30
+
+### Branch
+- `pilot-crop-layout-render`
+
+### Changes
+- Added crop upscaling before crop-level skeletonization in `render_pilot_strokes.py`.
+- Added `--crop_scale` CLI option with default `2.0`.
+- Stroke coordinates are downscaled back to the original crop coordinate system before bbox offsetting, so the full-page layout remains unchanged.
+
+### Purpose
+- Reduce pixel loss on small handwriting crops before Zhang-Suen skeletonization.
+- Keep the OCR crop placement logic unchanged while improving skeleton connectivity inside each crop.
+
+### Follow-up Adjustment
+- Added `--black_thickness` to control the black composite stroke image line width without changing the stroke extraction logic.
+- Added `--save_merged_debug` and `--merged_debug_mode` to save merged crop canvases plus preprocessing and stroke visualization results.
+- The merged debug output lets us compare two paths:
+  - per-crop skeleton/stroke extraction with bbox offsetting
+  - merged-canvas preprocessing followed by one global skeleton/stroke extraction
+- Added `--save_crop_debug` and `--crop_debug_mode` for the actual per-crop path.
+- Per-crop debug saves the scaled crop, binary preview, skeleton preview, and binary+skeleton overlay used before stroke extraction.
+- Added `--result_thickness` to control the colored stroke thickness in 3-panel result images.
+- `simulate_drawing.save_result_image` remains backward-compatible; omitted thickness still uses the previous automatic canvas-size-based value.
+- Added `--save_stroke_data` and `--stroke_data_output` to export restored strokes as JSON coordinate sequences.
+- The exported stroke data includes both crop-local coordinates and global coordinates after OCR bbox offsetting.
