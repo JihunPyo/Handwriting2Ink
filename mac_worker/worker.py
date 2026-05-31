@@ -27,14 +27,20 @@ def parse_args() -> argparse.Namespace:
         "--mode",
         choices=("mock", "replay"),
         default=None,
-        help="mock은 fake binary를 만들고, replay는 goodnotes_writer.py를 호출합니다.",
+        help="mock은 fake binary를 만들고, replay는 goodnotes_controller.py를 호출합니다.",
     )
     return parser.parse_args()
 
 
+def resolve_config_path(path: str) -> Path:
+    return (PROJECT_ROOT / path).resolve() if not Path(path).is_absolute() else Path(path)
+
+
 def load_config(path: str) -> dict[str, Any]:
-    config_path = (PROJECT_ROOT / path).resolve() if not Path(path).is_absolute() else Path(path)
-    return json.loads(config_path.read_text(encoding="utf-8"))
+    config_path = resolve_config_path(path)
+    config = json.loads(config_path.read_text(encoding="utf-8"))
+    config["__config_path"] = str(config_path)
+    return config
 
 
 class WorkerClient:
@@ -118,37 +124,39 @@ def make_mock_goodnotes_binary(job_id: str, strokes_path: Path, output_path: Pat
     output_path.write_bytes(json.dumps(payload, ensure_ascii=False, indent=2).encode("utf-8"))
 
 
-def run_goodnotes_replay(config: dict[str, Any], strokes_path: Path) -> None:
+def should_execute_goodnotes_controller(config: dict[str, Any]) -> bool:
+    return bool(config.get("execute_goodnotes_controller", config.get("execute_goodnotes_writer", False)))
+
+
+def run_goodnotes_controller(config: dict[str, Any], strokes_path: Path) -> bool:
+    controller_config = config.get("goodnotes_controller", {})
+    if not isinstance(controller_config, dict):
+        controller_config = {}
+
     command = [
         sys.executable,
-        str(PROJECT_ROOT / "goodnotes_writer.py"),
+        str(PROJECT_ROOT / "mac_worker" / "goodnotes_controller.py"),
+        "--config",
+        config.get("__config_path", str(PROJECT_ROOT / "mac_worker" / "config.json")),
         "--strokes",
         str(strokes_path),
-        "--target_rect",
-        config["target_rect"],
-        "--fit",
-        config.get("fit", "contain"),
-        "--driver",
-        config.get("driver", "drag"),
     ]
-    for key, flag in (
-        ("sample_step", "--sample_step"),
-        ("point_delay", "--point_delay"),
-        ("stroke_delay", "--stroke_delay"),
-        ("countdown", "--countdown"),
-    ):
-        if key in config:
-            command.extend([flag, str(config[key])])
-    if config.get("execute_goodnotes_writer"):
+
+    execute = should_execute_goodnotes_controller(config)
+    if execute:
         command.append("--execute")
-    if config.get("require_frontmost_goodnotes"):
-        command.append("--require_frontmost_goodnotes")
-    if config.get("activate_goodnotes"):
-        command.append("--activate_goodnotes")
-    pen_hotkey = config.get("pen_hotkey") or config.get("goodnotes_controller", {}).get("pen_hotkey")
-    if pen_hotkey:
-        command.extend(["--pen_hotkey", str(pen_hotkey)])
+
+    copy_after_draw = controller_config.get("copy_after_draw", config.get("copy_after_draw", True))
+    if copy_after_draw:
+        command.append("--copy_after_draw")
+
+    if controller_config.get("skip_fullscreen", config.get("skip_fullscreen", False)):
+        command.append("--skip_fullscreen")
+    if controller_config.get("skip_pen_select", config.get("skip_pen_select", False)):
+        command.append("--skip_pen_select")
+
     subprocess.run(command, cwd=PROJECT_ROOT, check=True)
+    return execute
 
 
 def dump_goodnotes_clipboard(output_path: Path) -> None:
@@ -174,8 +182,12 @@ def process_job(client: WorkerClient, config: dict[str, Any], job: dict[str, Any
 
     mode = config.get("mode", "mock")
     if mode == "replay":
-        client.report_status(job_id, "drawing_in_goodnotes", "GoodNotes에 stroke를 재생합니다.")
-        run_goodnotes_replay(config, strokes_path)
+        client.report_status(job_id, "drawing_in_goodnotes", "GoodNotes에 stroke를 그리고 올가미로 복사합니다.")
+        executed = run_goodnotes_controller(config, strokes_path)
+        if not executed:
+            raise RuntimeError(
+                "execute_goodnotes_controller=false 상태에서는 실제 GoodNotes 복사 결과가 없어 binary 추출을 중단합니다."
+            )
         client.report_status(job_id, "copying_from_goodnotes", "GoodNotes pasteboard binary를 추출합니다.")
         dump_goodnotes_clipboard(binary_path)
     else:

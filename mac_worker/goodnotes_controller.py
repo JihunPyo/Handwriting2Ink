@@ -41,6 +41,9 @@ class ControllerConfig:
     sample_step: int = 1
     point_delay: float = 0.002
     stroke_delay: float = 0.04
+    lasso_padding: float = 24.0
+    lasso_drag_duration: float = 0.8
+    copy_hotkey: str = "cmd+c"
     countdown: float = 2.0
     line_length: float = 15.0
 
@@ -67,6 +70,14 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--sample_step", type=int, default=None, help="N개 점마다 하나씩 사용")
     parser.add_argument("--point_delay", type=float, default=None, help="stroke point 사이 입력 지연")
     parser.add_argument("--stroke_delay", type=float, default=None, help="stroke 사이 입력 지연")
+    parser.add_argument(
+        "--copy_after_draw",
+        action="store_true",
+        help="stroke 입력 후 cmd+l로 올가미를 선택하고 stroke bbox 주변을 드래그한 뒤 cmd+c를 실행합니다.",
+    )
+    parser.add_argument("--lasso_padding", type=float, default=None, help="자동 올가미 bbox padding(px)")
+    parser.add_argument("--lasso_drag_duration", type=float, default=None, help="올가미 사각형 드래그 시간")
+    parser.add_argument("--copy_hotkey", default=None, help="복사 단축키. 기본값 cmd+c")
     parser.add_argument("--line_center", default=None, help="테스트 선 중심 절대 좌표 x,y")
     parser.add_argument("--line_length", type=float, default=None, help="테스트 선 길이(px). 기본값 15")
     parser.add_argument("--countdown", type=float, default=None, help="실제 선 입력 전 대기 시간")
@@ -167,6 +178,17 @@ def controller_config(raw: dict[str, Any], args: argparse.Namespace) -> Controll
         if args.stroke_delay is not None
         else float(section.get("stroke_delay", raw.get("stroke_delay", 0.04)))
     )
+    lasso_padding = (
+        args.lasso_padding
+        if args.lasso_padding is not None
+        else float(section.get("lasso_padding", 24.0))
+    )
+    lasso_drag_duration = (
+        args.lasso_drag_duration
+        if args.lasso_drag_duration is not None
+        else float(section.get("lasso_drag_duration", 0.8))
+    )
+    copy_hotkey = args.copy_hotkey or section.get("copy_hotkey") or "cmd+c"
     countdown = args.countdown if args.countdown is not None else float(section.get("countdown", 2.0))
     line_length = (
         args.line_length if args.line_length is not None else float(section.get("line_length", 15.0))
@@ -184,6 +206,9 @@ def controller_config(raw: dict[str, Any], args: argparse.Namespace) -> Controll
         sample_step=sample_step,
         point_delay=point_delay,
         stroke_delay=stroke_delay,
+        lasso_padding=lasso_padding,
+        lasso_drag_duration=lasso_drag_duration,
+        copy_hotkey=copy_hotkey,
         countdown=countdown,
         line_length=line_length,
     )
@@ -198,6 +223,12 @@ def prepare_mapped_strokes(strokes_path: Path, config: ControllerConfig) -> list
     mapped = map_strokes(strokes, source, config.target_rect, config.fit)
     summarize(mapped, source, config.target_rect)
     return mapped
+
+
+def padded_rect(rect: Rect, padding: float) -> Rect:
+    x, y, width, height = rect
+    padding = max(0.0, padding)
+    return x - padding, y - padding, width + padding * 2.0, height + padding * 2.0
 
 
 def run_osascript(script: str) -> str:
@@ -318,6 +349,43 @@ def select_lasso(config: ControllerConfig) -> None:
     send_hotkey(config.lasso_hotkey)
 
 
+def drag_lasso_rect(rect: Rect, duration: float) -> None:
+    try:
+        import pyautogui
+    except ImportError as exc:
+        raise RuntimeError("pyautogui가 설치되어 있지 않습니다.") from exc
+
+    x, y, width, height = rect
+    left, top = x, y
+    right, bottom = x + width, y + height
+    points = [
+        (left, top),
+        (right, top),
+        (right, bottom),
+        (left, bottom),
+        (left, top),
+    ]
+    segment_duration = max(duration, 0.0) / max(len(points) - 1, 1)
+
+    pyautogui.PAUSE = 0
+    pyautogui.FAILSAFE = True
+    pyautogui.moveTo(*points[0], duration=0.1)
+    pyautogui.mouseDown(button="left")
+    try:
+        for point in points[1:]:
+            pyautogui.moveTo(*point, duration=segment_duration)
+    finally:
+        pyautogui.mouseUp(button="left")
+
+
+def copy_with_lasso(config: ControllerConfig, selection_rect: Rect) -> None:
+    select_lasso(config)
+    time.sleep(0.2)
+    drag_lasso_rect(selection_rect, config.lasso_drag_duration)
+    time.sleep(0.2)
+    send_hotkey(config.copy_hotkey)
+
+
 def draw_horizontal_line(center: Point, length: float, driver: str) -> tuple[Point, Point]:
     try:
         import pyautogui
@@ -348,6 +416,9 @@ def main() -> None:
     config = controller_config(raw_config, args)
     strokes_path = resolve_path(args.strokes) if args.strokes else None
     mapped_strokes = prepare_mapped_strokes(strokes_path, config) if strokes_path else None
+    selection_rect = padded_rect(stroke_bbox(mapped_strokes), config.lasso_padding) if mapped_strokes else None
+    if args.copy_after_draw and mapped_strokes is None:
+        raise RuntimeError("--copy_after_draw는 --strokes 모드에서만 사용할 수 있습니다.")
     if mapped_strokes is None:
         explicit_center = parse_point(args.line_center)
         width, height = screen_size()
@@ -385,6 +456,12 @@ def main() -> None:
         print(f"sample step: {config.sample_step}")
         print(f"point delay: {config.point_delay}")
         print(f"stroke delay: {config.stroke_delay}")
+        if selection_rect is not None:
+            print(f"copy after draw: {args.copy_after_draw}")
+            print(f"lasso selection rect: {tuple(round(v, 2) for v in selection_rect)}")
+            print(f"lasso padding: {config.lasso_padding}")
+            print(f"lasso drag duration: {config.lasso_drag_duration}")
+            print(f"copy hotkey: {config.copy_hotkey}")
     else:
         print("draw mode: test_line")
 
@@ -403,6 +480,9 @@ def main() -> None:
     time.sleep(max(config.countdown, 0.0))
     if mapped_strokes is not None:
         replay_with_pyautogui(mapped_strokes, config.point_delay, config.stroke_delay, config.driver)
+        if args.copy_after_draw and selection_rect is not None:
+            copy_with_lasso(config, selection_rect)
+            print("copied with lasso")
     else:
         start, end = draw_horizontal_line(line_center, config.line_length, config.driver)
         print(f"line start: {tuple(round(v, 2) for v in start)}")

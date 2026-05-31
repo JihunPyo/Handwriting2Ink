@@ -13,6 +13,7 @@
   "stroke_delay": 0.04,
   "countdown": 3.0,
   "execute_goodnotes_writer": false,
+  "execute_goodnotes_controller": false,
   "activate_goodnotes": true,
   "require_frontmost_goodnotes": true,
   "pen_hotkey": "cmd+p",
@@ -29,6 +30,10 @@
     "sample_step": 10,
     "point_delay": 0.001,
     "stroke_delay": 0.01,
+    "lasso_padding": 24.0,
+    "lasso_drag_duration": 0.8,
+    "copy_hotkey": "cmd+c",
+    "copy_after_draw": true,
     "countdown": 2.0,
     "line_length": 15.0
   },

@@ -16,7 +16,7 @@ conda run -n DV python mac_worker/worker.py --once
 conda run -n DV python mac_worker/worker.py --mode replay --once
 ```
 
-`replay` 모드에서는 루트의 `goodnotes_writer.py`를 호출한다. `config.json`의 `execute_goodnotes_writer`가 `false`이면 dry-run으로 실행된다. 실제 입력을 수행하려면 `true`로 바꾸고 GoodNotes 창, 펜 도구, 화면 좌표를 먼저 고정해야 한다.
+`replay` 모드에서는 `mac_worker/goodnotes_controller.py`를 호출한다. `config.json`의 `execute_goodnotes_controller`가 `false`이면 dry-run으로 실행한 뒤 stale pasteboard 업로드를 막기 위해 job을 실패 처리한다. 실제 입력, 올가미 복사, binary 추출을 수행하려면 `true`로 바꾸고 GoodNotes 창, 펜 도구, 화면 좌표를 먼저 고정해야 한다. 기존 `execute_goodnotes_writer` 값도 호환용으로 계속 인식한다.
 
 ## GoodNotes 실행 전 점검
 
@@ -55,6 +55,7 @@ point_delay: point 사이 입력 지연
 stroke_delay: stroke 사이 입력 지연
 countdown: 실제 입력 전 대기 시간
 execute_goodnotes_writer: true일 때만 실제 마우스 입력 수행
+execute_goodnotes_controller: true일 때 worker replay에서 실제 GoodNotes 입력과 올가미 복사 수행
 activate_goodnotes: 실제 입력 전 GoodNotes 앱 활성화
 require_frontmost_goodnotes: 실제 입력 직전 GoodNotes 전면 앱 여부 확인
 ```
@@ -136,3 +137,18 @@ conda run -n DV python mac_worker/goodnotes_controller.py \
 ```
 
 `--strokes`가 지정되면 중앙 테스트 선 대신 `strokes.json` 기반 replay를 수행한다. 처음에는 `sample_step`을 크게 잡아 위치와 입력 가능성을 확인한 뒤, 품질 확인 시 `5`, `2`, `1` 순서로 줄인다.
+
+stroke 입력 후 자동으로 올가미 선택과 복사까지 확인하려면 `--copy_after_draw`를 붙인다. 이 모드는 매핑된 stroke 화면 bbox에 padding을 더해 올가미 드래그 영역을 계산하고, `cmd+l`, bbox 주변 사각형 드래그, `cmd+c` 순서로 실행한다.
+
+```bash
+conda run -n DV python mac_worker/goodnotes_controller.py \
+  --strokes mac_worker/samples/crop_stroke_composite_strokes.json \
+  --target_rect 320,180,980,720 \
+  --sample_step 10 \
+  --point_delay 0.001 \
+  --stroke_delay 0.01 \
+  --copy_after_draw \
+  --execute
+```
+
+올가미가 너무 타이트하거나 주변 stroke를 놓치면 `--lasso_padding 40`처럼 padding을 늘린다.

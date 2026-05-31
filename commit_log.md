@@ -1,5 +1,24 @@
 # Commit Log
 
+## 2026-06-01 Mac 워커 replay 경로를 GoodNotes 컨트롤러로 전환
+
+- `mac_worker/worker.py`의 replay 경로를 `goodnotes_writer.py` 직접 호출에서 `mac_worker/goodnotes_controller.py --strokes` 호출로 변경했다.
+  - 컨트롤러 config를 그대로 넘겨 `target_rect`, `sample_step`, `drag`, `cmd+p`, `cmd+l`, lasso padding, copy hotkey 설정을 한 곳에서 쓰도록 했다.
+  - replay 모드에서는 기본적으로 `--copy_after_draw`를 붙여 stroke 입력 후 올가미 선택, bbox 드래그, `cmd+c`까지 수행하도록 했다.
+  - 실제 실행 플래그는 새 `execute_goodnotes_controller`를 우선 사용하고, 기존 `execute_goodnotes_writer`도 호환용으로 인식하도록 했다.
+  - `execute_goodnotes_controller=false` dry-run 상태에서는 이전 pasteboard가 업로드되지 않도록 binary 추출 전에 명시적으로 중단하도록 했다.
+- `mac_worker/config.json`에 `execute_goodnotes_controller`와 `goodnotes_controller.copy_after_draw` 설정을 추가했다.
+- `mac_worker/README.md`에 worker replay 호출 대상이 GoodNotes 컨트롤러로 바뀐 내용을 반영했다.
+
+## 2026-06-01 GoodNotes 올가미 복사 자동화 추가
+
+- `mac_worker/goodnotes_controller.py`에 `--copy_after_draw` 옵션을 추가했다.
+  - `strokes.json`이 화면 좌표로 매핑된 뒤 stroke bbox를 계산하고, padding을 더한 올가미 선택 영역을 자동 산출하도록 했다.
+  - stroke 입력 후 `cmd+l`, bbox 주변 사각형 드래그, `cmd+c` 순서로 GoodNotes 내용을 복사하도록 했다.
+  - `--lasso_padding`, `--lasso_drag_duration`, `--copy_hotkey` 옵션을 추가했다.
+- `mac_worker/config.json`에 올가미 복사 기본 설정을 추가했다.
+- `mac_worker/README.md`에 `--copy_after_draw` 실행 예시와 padding 조정 방법을 추가했다.
+
 ## 2026-06-01 GoodNotes GUI 컨트롤러 smoke test 추가
 
 - `mac_worker/goodnotes_controller.py`를 추가했다.
