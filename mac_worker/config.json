@@ -1,0 +1,14 @@
+{
+  "server_url": "http://127.0.0.1:8000",
+  "worker_token": "dev-worker-token",
+  "worker_id": "mac-worker-dev",
+  "poll_interval_seconds": 3,
+  "mode": "mock",
+  "jobs_dir": "mac_worker/jobs",
+  "target_rect": "320,180,980,720",
+  "fit": "contain",
+  "driver": "drag",
+  "execute_goodnotes_writer": false,
+  "pasteboard_type": "com.goodnotesapp.goodnotes5.notes"
+}
+
