@@ -1,5 +1,87 @@
 # Commit Log
 
+## 2026-06-01 로컬 워커 설정 분리
+
+- `mac_worker/worker.py`가 `mac_worker/config.local.json`을 읽어 기본 config 위에 덮어쓰도록 했다.
+  - 배포 worker token 같은 로컬 비밀값을 추적되는 `config.json`에 커밋하지 않기 위한 변경이다.
+  - `H2I_SERVER_URL`, `H2I_WORKER_TOKEN` 환경 변수로도 서버 주소와 worker token을 덮어쓸 수 있게 했다.
+- `.gitignore`에 `mac_worker/config.local.json`과 zip 산출물 제외 규칙을 추가했다.
+- `mac_worker/config.json`의 `worker_token`은 개발용 기본값으로 되돌리고, 로컬 실행용 token은 ignored local config에 보관하도록 했다.
+
+## 2026-06-01 iPad GoodNotesRestoreApp Xcode 프로젝트 추가
+
+- `GoodNotesRestoreApp/GoodNotesRestoreApp.xcodeproj`를 추가해 기존 SwiftUI 소스를 Xcode에서 바로 열 수 있게 했다.
+- `Info.plist`와 `Assets.xcassets`를 추가했다.
+  - iPad 전용 target, 로컬 HTTP/LAN 서버 접근을 위한 ATS 및 local network 설명을 포함했다.
+  - Xcode에서 바로 선택 가능한 shared scheme과 AccentColor asset을 포함했다.
+- iPad 앱 흐름을 보강했다.
+  - 기본 서버 URL을 Railway 배포 주소로 변경하고 `@AppStorage`로 저장하도록 했다.
+  - 선택 이미지를 `UIImage`로 읽어 JPEG로 정규화한 뒤 FastAPI 서버에 업로드하도록 했다.
+  - 업로드, job polling, binary 다운로드, `UIPasteboard` 기록, delivered 보고가 하나의 실행 버튼에서 이어지도록 했다.
+  - binary가 이미 준비된 job에 대해 다시 다운로드/복사할 수 있는 재시도 버튼을 추가했다.
+- `APIClientError`를 `LocalizedError`로 바꿔 서버 오류 메시지가 앱 화면에 읽히도록 했다.
+- `GoodNotesRestoreApp/README.md`에 Xcode 프로젝트 실행 경로와 iPad 테스트 절차를 반영했다.
+
+## 2026-06-01 GoodNotes stroke 중복 point 필터 추가
+
+- `goodnotes_writer.py`에 `filter_strokes_by_distance()`와 `--min_point_distance` 옵션을 추가했다.
+  - 화면 좌표 매핑 후 같은 좌표 또는 너무 가까운 point를 생략해 mouseDown 상태에서 같은 위치에 머무르는 입력을 줄이도록 했다.
+  - GoodNotes가 중복 point 구간을 우클릭/롱프레스성 동작처럼 해석하는 문제를 줄이기 위한 변경이다.
+- `mac_worker/goodnotes_controller.py`가 stroke replay 전에 `min_point_distance` 필터를 적용하도록 했다.
+- `mac_worker/config.json`의 `goodnotes_controller.min_point_distance` 기본값을 `1.0`으로 추가했다.
+
+## 2026-06-01 GoodNotes 자동 입력 전역 중단 키 추가
+
+- `goodnotes_writer.py`에 전역 중단 플래그와 macOS Quartz 키 이벤트 리스너를 추가했다.
+  - GoodNotes가 전면 앱이어도 `Esc` 또는 `Ctrl+C` 입력을 감지해 자동 입력을 중단할 수 있게 했다.
+  - 터미널이 포커스를 잃어 일반 `KeyboardInterrupt`가 전달되지 않는 문제를 보완했다.
+  - 입력 루프 내부에서 중단 플래그를 주기적으로 확인하고, 중단 시 마우스 버튼을 올린 뒤 종료하도록 했다.
+- `mac_worker/goodnotes_controller.py`가 실제 실행 전에 전역 중단 리스너를 설치하도록 했다.
+  - 올가미 드래그와 복사 재시도 중에도 중단 플래그를 확인하도록 했다.
+
+## 2026-06-01 GoodNotes worker 기본 stroke 품질 설정 조정
+
+- `mac_worker/config.json`의 `goodnotes_controller.sample_step`을 `10`에서 `1`로 변경했다.
+  - worker 경로에서 10개 점마다 하나만 사용하는 sampling 때문에 곡선과 자소가 직선화되는 문제를 줄이기 위한 변경이다.
+  - `point_delay`를 `0.002`, `stroke_delay`를 `0.02`로 조정해 전체 point를 사용하는 replay가 너무 빠르게 입력되지 않도록 했다.
+- `mac_worker/README.md`에 `sample_step=10`은 위치 확인용이고, 실제 품질/worker 기본 실행은 `sample_step=1`을 사용해야 한다는 내용을 반영했다.
+
+## 2026-06-01 GoodNotes 복사 단축키 안정화
+
+- `pyautogui`의 macOS Command modifier 정식 키 이름이 `command`임을 반영했다.
+  - `send_hotkey()`에서 `cmd` 입력을 `command`로 정규화하도록 했다.
+  - `goodnotes_controller.py`의 기본 `copy_hotkey`를 `command+c`로 변경했다.
+- 올가미 선택 확정 이후 복사 타이밍을 안정화했다.
+  - `copy_delay`, `copy_retries`, `copy_retry_delay` 설정을 추가해 GoodNotes 선택 확정 후 복사 단축키를 보낼 수 있게 했다.
+  - `mac_worker/config.json`에 기본 복사 대기/재시도 설정을 추가했다.
+
+## 2026-06-01 올가미 smoke test용 단일 획 샘플 추가
+
+- `mac_worker/samples/one_stroke_lasso_test.json`을 추가했다.
+  - 기존 `single_stroke.json`보다 정사각형 비율에 가까운 한 획 폐곡선 샘플로 구성했다.
+  - GoodNotes 중앙에 더 안정적으로 매핑해 펜 stroke와 올가미 선택을 함께 확인할 수 있게 했다.
+
+## 2026-06-01 GoodNotes 펜 stroke 연속 입력 보강
+
+- `goodnotes_writer.py`의 `driver=drag` 입력 방식을 수정했다.
+  - 기존에는 각 point 구간마다 `pyautogui.dragTo()`가 독립 실행되어 mouseDown/mouseUp이 반복될 수 있었다.
+  - 한 stroke 전체에서 mouseDown을 유지하고, 내부 point 이동은 `dragTo(..., mouseDownUp=False)`로 이어 보내도록 변경했다.
+  - GoodNotes에서 획이 잘게 끊겨 들어가고 획 지우개/올가미 인식이 불안정해지는 문제를 줄이기 위한 변경이다.
+- `mac_worker/README.md`에 연속 drag event 방식의 이유를 기록했다.
+
+## 2026-06-01 GoodNotes 올가미 drag event 방식 보강
+
+- `mac_worker/goodnotes_controller.py`의 올가미 드래그가 macOS drag event를 쓰도록 `lasso_driver` 설정을 추가했다.
+  - 기존 올가미 드래그는 `mouseDown + moveTo + mouseUp` 방식이어서 GoodNotes에서 파란 올가미 파선이 나타나지 않을 수 있었다.
+  - 기본값을 `drag`로 두고, 내부 이동에 `pyautogui.dragTo(..., mouseDownUp=False)`를 사용하도록 했다.
+  - `cmd+l` 직후 도구 전환 안정화를 위해 `lasso_tool_delay` 설정을 추가했다.
+- `mac_worker/config.json`과 `mac_worker/README.md`에 올가미 drag event 설정을 반영했다.
+
+## 2026-06-01 배포 서버 워커 설정 반영
+
+- `mac_worker/config.json`의 `server_url`을 Railway 배포 서버 주소로 변경했다.
+- `worker_token`을 배포 서버용 워커 토큰으로 변경했다.
+
 ## 2026-06-01 Mac 워커 replay 경로를 GoodNotes 컨트롤러로 전환
 
 - `mac_worker/worker.py`의 replay 경로를 `goodnotes_writer.py` 직접 호출에서 `mac_worker/goodnotes_controller.py --strokes` 호출로 변경했다.

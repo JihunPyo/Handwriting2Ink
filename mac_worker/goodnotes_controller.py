@@ -15,7 +15,10 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from goodnotes_writer import load_strokes
+from goodnotes_writer import filter_strokes_by_distance
+from goodnotes_writer import install_abort_handlers
 from goodnotes_writer import map_strokes
+from goodnotes_writer import raise_if_aborted
 from goodnotes_writer import replay_with_pyautogui
 from goodnotes_writer import sample_strokes
 from goodnotes_writer import stroke_bbox
@@ -39,11 +42,17 @@ class ControllerConfig:
     target_rect: Rect | None = None
     fit: str = "contain"
     sample_step: int = 1
+    min_point_distance: float = 1.0
     point_delay: float = 0.002
     stroke_delay: float = 0.04
+    lasso_driver: str = "drag"
     lasso_padding: float = 24.0
     lasso_drag_duration: float = 0.8
-    copy_hotkey: str = "cmd+c"
+    lasso_tool_delay: float = 0.6
+    copy_hotkey: str = "command+c"
+    copy_delay: float = 0.8
+    copy_retries: int = 2
+    copy_retry_delay: float = 0.3
     countdown: float = 2.0
     line_length: float = 15.0
 
@@ -68,6 +77,7 @@ def parse_args() -> argparse.Namespace:
         help="stroke bbox를 target_rect에 맞추는 방식",
     )
     parser.add_argument("--sample_step", type=int, default=None, help="N개 점마다 하나씩 사용")
+    parser.add_argument("--min_point_distance", type=float, default=None, help="매핑 후 이 거리(px) 미만으로 움직인 점 생략")
     parser.add_argument("--point_delay", type=float, default=None, help="stroke point 사이 입력 지연")
     parser.add_argument("--stroke_delay", type=float, default=None, help="stroke 사이 입력 지연")
     parser.add_argument(
@@ -77,7 +87,17 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--lasso_padding", type=float, default=None, help="자동 올가미 bbox padding(px)")
     parser.add_argument("--lasso_drag_duration", type=float, default=None, help="올가미 사각형 드래그 시간")
-    parser.add_argument("--copy_hotkey", default=None, help="복사 단축키. 기본값 cmd+c")
+    parser.add_argument(
+        "--lasso_driver",
+        choices=("drag", "down_move"),
+        default=None,
+        help="올가미 드래그 입력 방식. macOS/GoodNotes에서는 drag 권장",
+    )
+    parser.add_argument("--lasso_tool_delay", type=float, default=None, help="cmd+l 후 올가미 입력 전 대기 시간")
+    parser.add_argument("--copy_hotkey", default=None, help="복사 단축키. 기본값 command+c")
+    parser.add_argument("--copy_delay", type=float, default=None, help="올가미 mouseUp 후 복사 전 대기 시간")
+    parser.add_argument("--copy_retries", type=int, default=None, help="복사 단축키 반복 횟수")
+    parser.add_argument("--copy_retry_delay", type=float, default=None, help="복사 단축키 반복 간 대기 시간")
     parser.add_argument("--line_center", default=None, help="테스트 선 중심 절대 좌표 x,y")
     parser.add_argument("--line_length", type=float, default=None, help="테스트 선 길이(px). 기본값 15")
     parser.add_argument("--countdown", type=float, default=None, help="실제 선 입력 전 대기 시간")
@@ -168,6 +188,11 @@ def controller_config(raw: dict[str, Any], args: argparse.Namespace) -> Controll
     sample_step = (
         args.sample_step if args.sample_step is not None else int(section.get("sample_step", raw.get("sample_step", 1)))
     )
+    min_point_distance = (
+        args.min_point_distance
+        if args.min_point_distance is not None
+        else float(section.get("min_point_distance", raw.get("min_point_distance", 1.0)))
+    )
     point_delay = (
         args.point_delay
         if args.point_delay is not None
@@ -178,6 +203,7 @@ def controller_config(raw: dict[str, Any], args: argparse.Namespace) -> Controll
         if args.stroke_delay is not None
         else float(section.get("stroke_delay", raw.get("stroke_delay", 0.04)))
     )
+    lasso_driver = args.lasso_driver or section.get("lasso_driver") or "drag"
     lasso_padding = (
         args.lasso_padding
         if args.lasso_padding is not None
@@ -188,7 +214,27 @@ def controller_config(raw: dict[str, Any], args: argparse.Namespace) -> Controll
         if args.lasso_drag_duration is not None
         else float(section.get("lasso_drag_duration", 0.8))
     )
-    copy_hotkey = args.copy_hotkey or section.get("copy_hotkey") or "cmd+c"
+    lasso_tool_delay = (
+        args.lasso_tool_delay
+        if args.lasso_tool_delay is not None
+        else float(section.get("lasso_tool_delay", 0.6))
+    )
+    copy_hotkey = args.copy_hotkey or section.get("copy_hotkey") or "command+c"
+    copy_delay = (
+        args.copy_delay
+        if args.copy_delay is not None
+        else float(section.get("copy_delay", 0.8))
+    )
+    copy_retries = (
+        args.copy_retries
+        if args.copy_retries is not None
+        else int(section.get("copy_retries", 2))
+    )
+    copy_retry_delay = (
+        args.copy_retry_delay
+        if args.copy_retry_delay is not None
+        else float(section.get("copy_retry_delay", 0.3))
+    )
     countdown = args.countdown if args.countdown is not None else float(section.get("countdown", 2.0))
     line_length = (
         args.line_length if args.line_length is not None else float(section.get("line_length", 15.0))
@@ -204,11 +250,17 @@ def controller_config(raw: dict[str, Any], args: argparse.Namespace) -> Controll
         target_rect=target_rect,
         fit=fit,
         sample_step=sample_step,
+        min_point_distance=min_point_distance,
         point_delay=point_delay,
         stroke_delay=stroke_delay,
+        lasso_driver=lasso_driver,
         lasso_padding=lasso_padding,
         lasso_drag_duration=lasso_drag_duration,
+        lasso_tool_delay=lasso_tool_delay,
         copy_hotkey=copy_hotkey,
+        copy_delay=copy_delay,
+        copy_retries=copy_retries,
+        copy_retry_delay=copy_retry_delay,
         countdown=countdown,
         line_length=line_length,
     )
@@ -221,6 +273,7 @@ def prepare_mapped_strokes(strokes_path: Path, config: ControllerConfig) -> list
     strokes = sample_strokes(strokes, config.sample_step)
     source = stroke_bbox(strokes)
     mapped = map_strokes(strokes, source, config.target_rect, config.fit)
+    mapped = filter_strokes_by_distance(mapped, config.min_point_distance)
     summarize(mapped, source, config.target_rect)
     return mapped
 
@@ -309,7 +362,8 @@ def send_hotkey(hotkey: str) -> None:
     except ImportError as exc:
         raise RuntimeError("pyautogui가 설치되어 있지 않습니다.") from exc
 
-    keys = [part.strip().lower() for part in hotkey.split("+") if part.strip()]
+    aliases = {"cmd": "command"}
+    keys = [aliases.get(part.strip().lower(), part.strip().lower()) for part in hotkey.split("+") if part.strip()]
     if not keys:
         raise RuntimeError("단축키가 비어 있습니다.")
     pyautogui.hotkey(*keys)
@@ -349,7 +403,7 @@ def select_lasso(config: ControllerConfig) -> None:
     send_hotkey(config.lasso_hotkey)
 
 
-def drag_lasso_rect(rect: Rect, duration: float) -> None:
+def drag_lasso_rect(rect: Rect, duration: float, driver: str) -> None:
     try:
         import pyautogui
     except ImportError as exc:
@@ -373,17 +427,31 @@ def drag_lasso_rect(rect: Rect, duration: float) -> None:
     pyautogui.mouseDown(button="left")
     try:
         for point in points[1:]:
-            pyautogui.moveTo(*point, duration=segment_duration)
+            raise_if_aborted()
+            if driver == "drag":
+                pyautogui.dragTo(
+                    *point,
+                    duration=segment_duration,
+                    button="left",
+                    mouseDownUp=False,
+                )
+            else:
+                pyautogui.moveTo(*point, duration=segment_duration)
     finally:
         pyautogui.mouseUp(button="left")
 
 
 def copy_with_lasso(config: ControllerConfig, selection_rect: Rect) -> None:
     select_lasso(config)
-    time.sleep(0.2)
-    drag_lasso_rect(selection_rect, config.lasso_drag_duration)
-    time.sleep(0.2)
-    send_hotkey(config.copy_hotkey)
+    time.sleep(max(config.lasso_tool_delay, 0.0))
+    drag_lasso_rect(selection_rect, config.lasso_drag_duration, config.lasso_driver)
+    time.sleep(max(config.copy_delay, 0.0))
+    attempts = max(config.copy_retries, 1)
+    for index in range(attempts):
+        raise_if_aborted()
+        send_hotkey(config.copy_hotkey)
+        if index < attempts - 1:
+            time.sleep(max(config.copy_retry_delay, 0.0))
 
 
 def draw_horizontal_line(center: Point, length: float, driver: str) -> tuple[Point, Point]:
@@ -454,14 +522,20 @@ def main() -> None:
         print(f"strokes path: {strokes_path}")
         print(f"fit: {config.fit}")
         print(f"sample step: {config.sample_step}")
+        print(f"min point distance: {config.min_point_distance}")
         print(f"point delay: {config.point_delay}")
         print(f"stroke delay: {config.stroke_delay}")
         if selection_rect is not None:
             print(f"copy after draw: {args.copy_after_draw}")
             print(f"lasso selection rect: {tuple(round(v, 2) for v in selection_rect)}")
+            print(f"lasso driver: {config.lasso_driver}")
             print(f"lasso padding: {config.lasso_padding}")
             print(f"lasso drag duration: {config.lasso_drag_duration}")
+            print(f"lasso tool delay: {config.lasso_tool_delay}")
             print(f"copy hotkey: {config.copy_hotkey}")
+            print(f"copy delay: {config.copy_delay}")
+            print(f"copy retries: {config.copy_retries}")
+            print(f"copy retry delay: {config.copy_retry_delay}")
     else:
         print("draw mode: test_line")
 
@@ -469,6 +543,7 @@ def main() -> None:
         print("dry-run: 실제 GoodNotes 조작은 실행하지 않았습니다. --execute를 붙이면 실행됩니다.")
         return
 
+    install_abort_handlers()
     app_name = activate_goodnotes()
     if not args.skip_fullscreen:
         set_goodnotes_fullscreen(app_name)
@@ -478,18 +553,22 @@ def main() -> None:
     action = "strokes.json 입력" if mapped_strokes is not None else "중앙 테스트 선 입력"
     print(f"{config.countdown:.1f}초 후 {action}을 시작합니다.")
     time.sleep(max(config.countdown, 0.0))
-    if mapped_strokes is not None:
-        replay_with_pyautogui(mapped_strokes, config.point_delay, config.stroke_delay, config.driver)
-        if args.copy_after_draw and selection_rect is not None:
-            copy_with_lasso(config, selection_rect)
-            print("copied with lasso")
-    else:
-        start, end = draw_horizontal_line(line_center, config.line_length, config.driver)
-        print(f"line start: {tuple(round(v, 2) for v in start)}")
-        print(f"line end: {tuple(round(v, 2) for v in end)}")
-    if args.select_lasso_after_draw:
-        select_lasso(config)
-        print("lasso selected")
+    try:
+        if mapped_strokes is not None:
+            replay_with_pyautogui(mapped_strokes, config.point_delay, config.stroke_delay, config.driver)
+            if args.copy_after_draw and selection_rect is not None:
+                copy_with_lasso(config, selection_rect)
+                print("copied with lasso")
+        else:
+            start, end = draw_horizontal_line(line_center, config.line_length, config.driver)
+            print(f"line start: {tuple(round(v, 2) for v in start)}")
+            print(f"line end: {tuple(round(v, 2) for v in end)}")
+        if args.select_lasso_after_draw:
+            select_lasso(config)
+            print("lasso selected")
+    except KeyboardInterrupt:
+        print("사용자 인터럽트로 GoodNotes 자동 입력을 중단했습니다.")
+        sys.exit(130)
     print("done")
 
 

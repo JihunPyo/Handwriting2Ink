@@ -1,0 +1,39 @@
+{
+  "input_path": "mac_worker/samples/one_stroke_lasso_test.json",
+  "scale": 1.0,
+  "crop_scale": 1.0,
+  "region_source": "manual_lasso_smoke",
+  "shape_rendering": "manual_lasso_smoke",
+  "coordinate_system": {
+    "global_points": "reference image coordinates",
+    "point_order": "[x, y]"
+  },
+  "total_stroke_count": 1,
+  "strokes": [
+    {
+      "id": 1,
+      "region_type": "manual_lasso_smoke",
+      "bbox": [100, 100, 240, 240],
+      "point_count": 17,
+      "global_points": [
+        [220, 100],
+        [266, 109],
+        [305, 135],
+        [331, 174],
+        [340, 220],
+        [331, 266],
+        [305, 305],
+        [266, 331],
+        [220, 340],
+        [174, 331],
+        [135, 305],
+        [109, 266],
+        [100, 220],
+        [109, 174],
+        [135, 135],
+        [174, 109],
+        [220, 100]
+      ]
+    }
+  ]
+}

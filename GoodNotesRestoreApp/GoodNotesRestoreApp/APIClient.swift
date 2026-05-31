@@ -1,8 +1,20 @@
 import Foundation
 
-enum APIClientError: Error {
+enum APIClientError: LocalizedError {
     case invalidResponse
     case serverError(Int, String)
+
+    var errorDescription: String? {
+        switch self {
+        case .invalidResponse:
+            return "서버 응답을 해석할 수 없습니다."
+        case let .serverError(statusCode, message):
+            if message.isEmpty {
+                return "서버가 HTTP \(statusCode) 오류를 반환했습니다."
+            }
+            return "서버가 HTTP \(statusCode) 오류를 반환했습니다: \(message)"
+        }
+    }
 }
 
 final class APIClient {
@@ -21,7 +33,11 @@ final class APIClient {
         URL(string: path, relativeTo: baseURL)!.absoluteURL
     }
 
-    func uploadImage(data: Data, filename: String) async throws -> CreateJobResponse {
+    func uploadImage(
+        data: Data,
+        filename: String,
+        contentType: String = "image/jpeg"
+    ) async throws -> CreateJobResponse {
         let boundary = "Boundary-\(UUID().uuidString)"
         var request = URLRequest(url: endpoint("/api/jobs"))
         request.httpMethod = "POST"
@@ -30,7 +46,7 @@ final class APIClient {
         var body = Data()
         body.append("--\(boundary)\r\n")
         body.append("Content-Disposition: form-data; name=\"file\"; filename=\"\(filename)\"\r\n")
-        body.append("Content-Type: image/jpeg\r\n\r\n")
+        body.append("Content-Type: \(contentType)\r\n\r\n")
         body.append(data)
         body.append("\r\n--\(boundary)--\r\n")
 
@@ -65,10 +81,22 @@ final class APIClient {
             throw APIClientError.invalidResponse
         }
         guard (200..<300).contains(httpResponse.statusCode) else {
-            let message = String(data: data, encoding: .utf8) ?? ""
+            let message = parseErrorMessage(from: data)
             throw APIClientError.serverError(httpResponse.statusCode, message)
         }
     }
+
+    private func parseErrorMessage(from data: Data) -> String {
+        if let response = try? JSONDecoder().decode(APIErrorResponse.self, from: data),
+           let detail = response.detail {
+            return detail
+        }
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+}
+
+private struct APIErrorResponse: Decodable {
+    let detail: String?
 }
 
 private extension Data {

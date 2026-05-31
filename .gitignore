@@ -7,5 +7,9 @@ __pycache__/
 
 server/storage/
 mac_worker/jobs/
+mac_worker/config.local.json
+*.zip
+*.xcuserstate
+xcuserdata/
 
 .DS_Store

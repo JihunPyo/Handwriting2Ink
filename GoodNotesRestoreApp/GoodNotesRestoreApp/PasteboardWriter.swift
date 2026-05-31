@@ -5,10 +5,10 @@ enum PasteboardWriter {
     static let goodNotesPasteboardType = "com.goodnotesapp.goodnotes5.notes"
 
     static func writeGoodNotesBinary(_ data: Data) {
-        UIPasteboard.general.items = [
+        UIPasteboard.general.setItems([
             [
                 goodNotesPasteboardType: data
             ]
-        ]
+        ])
     }
 }

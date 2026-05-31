@@ -36,9 +36,27 @@ def resolve_config_path(path: str) -> Path:
     return (PROJECT_ROOT / path).resolve() if not Path(path).is_absolute() else Path(path)
 
 
+def merge_config(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = merge_config(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
 def load_config(path: str) -> dict[str, Any]:
     config_path = resolve_config_path(path)
     config = json.loads(config_path.read_text(encoding="utf-8"))
+    local_config_path = config_path.with_name("config.local.json")
+    if local_config_path.exists():
+        local_config = json.loads(local_config_path.read_text(encoding="utf-8"))
+        config = merge_config(config, local_config)
+    if os.getenv("H2I_SERVER_URL"):
+        config["server_url"] = os.environ["H2I_SERVER_URL"]
+    if os.getenv("H2I_WORKER_TOKEN"):
+        config["worker_token"] = os.environ["H2I_WORKER_TOKEN"]
     config["__config_path"] = str(config_path)
     return config
 
@@ -155,7 +173,12 @@ def run_goodnotes_controller(config: dict[str, Any], strokes_path: Path) -> bool
     if controller_config.get("skip_pen_select", config.get("skip_pen_select", False)):
         command.append("--skip_pen_select")
 
-    subprocess.run(command, cwd=PROJECT_ROOT, check=True)
+    try:
+        subprocess.run(command, cwd=PROJECT_ROOT, check=True)
+    except subprocess.CalledProcessError as exc:
+        if exc.returncode in {130, -2}:
+            raise KeyboardInterrupt from exc
+        raise
     return execute
 
 
@@ -224,6 +247,9 @@ def main() -> None:
 
         try:
             process_job(client, config, job)
+        except KeyboardInterrupt:
+            print("사용자 인터럽트로 Mac 워커를 중단했습니다.")
+            raise
         except Exception as exc:
             client.fail(job["job_id"], "MAC_WORKER_FAILED", str(exc))
             raise

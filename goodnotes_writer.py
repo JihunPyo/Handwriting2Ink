@@ -10,12 +10,17 @@ from __future__ import annotations
 
 import argparse
 import json
+import signal
 import subprocess
+import sys
+import threading
 import time
 from pathlib import Path
 
 Point = tuple[float, float]
 Rect = tuple[float, float, float, float]
+ABORT_EVENT = threading.Event()
+ABORT_LISTENER_STARTED = False
 
 
 def parse_args() -> argparse.Namespace:
@@ -35,6 +40,7 @@ def parse_args() -> argparse.Namespace:
         help="stroke bbox를 target_rect에 맞추는 방식. 기본값은 비율 유지(contain)",
     )
     parser.add_argument("--sample_step", type=int, default=1, help="N개 점마다 하나씩 사용")
+    parser.add_argument("--min_point_distance", type=float, default=0.0, help="매핑 후 이 거리(px) 미만으로 움직인 점은 생략")
     parser.add_argument("--point_delay", type=float, default=0.002, help="점 사이 대기 시간")
     parser.add_argument("--stroke_delay", type=float, default=0.04, help="stroke 사이 대기 시간")
     parser.add_argument("--countdown", type=float, default=3.0, help="실제 실행 전 대기 시간")
@@ -132,6 +138,30 @@ def sample_strokes(strokes: list[list[Point]], step: int) -> list[list[Point]]:
     return sampled
 
 
+def filter_strokes_by_distance(strokes: list[list[Point]], min_distance: float) -> list[list[Point]]:
+    min_distance = max(0.0, min_distance)
+    if min_distance <= 0:
+        return strokes
+
+    filtered_strokes: list[list[Point]] = []
+    min_distance_sq = min_distance * min_distance
+    for stroke in strokes:
+        filtered = [stroke[0]]
+        last_x, last_y = stroke[0]
+        for x, y in stroke[1:-1]:
+            dx = x - last_x
+            dy = y - last_y
+            if dx * dx + dy * dy < min_distance_sq:
+                continue
+            filtered.append((x, y))
+            last_x, last_y = x, y
+        if stroke[-1] != filtered[-1]:
+            filtered.append(stroke[-1])
+        if len(filtered) >= 2:
+            filtered_strokes.append(filtered)
+    return filtered_strokes
+
+
 def summarize(strokes: list[list[Point]], source: Rect, target: Rect) -> None:
     point_count = sum(len(stroke) for stroke in strokes)
     mapped = stroke_bbox(strokes)
@@ -190,11 +220,71 @@ def send_hotkey(hotkey: str) -> None:
             "conda run -n DV python -m pip install pyautogui 로 설치하세요."
         ) from exc
 
-    keys = [part.strip().lower() for part in hotkey.split("+") if part.strip()]
+    aliases = {"cmd": "command"}
+    keys = [aliases.get(part.strip().lower(), part.strip().lower()) for part in hotkey.split("+") if part.strip()]
     if not keys:
         raise RuntimeError("단축키가 비어 있습니다.")
     pyautogui.hotkey(*keys)
     time.sleep(0.2)
+
+
+def request_abort() -> None:
+    ABORT_EVENT.set()
+
+
+def raise_if_aborted() -> None:
+    if ABORT_EVENT.is_set():
+        raise KeyboardInterrupt
+
+
+def install_abort_handlers() -> None:
+    global ABORT_LISTENER_STARTED
+
+    def handle_sigint(_signum: int, _frame: object) -> None:
+        request_abort()
+
+    signal.signal(signal.SIGINT, handle_sigint)
+    if ABORT_LISTENER_STARTED:
+        return
+    ABORT_LISTENER_STARTED = True
+
+    try:
+        import Quartz
+    except Exception as exc:
+        print(f"WARN: Quartz 전역 중단 키 리스너를 사용할 수 없습니다: {exc}")
+        return
+
+    def listen() -> None:
+        def callback(_proxy: object, event_type: int, event: object, _refcon: object) -> object:
+            if event_type == Quartz.kCGEventKeyDown:
+                keycode = Quartz.CGEventGetIntegerValueField(event, Quartz.kCGKeyboardEventKeycode)
+                flags = Quartz.CGEventGetFlags(event)
+                control_down = bool(flags & Quartz.kCGEventFlagMaskControl)
+                if keycode == 53 or (control_down and keycode == 8):
+                    request_abort()
+            return event
+
+        mask = Quartz.CGEventMaskBit(Quartz.kCGEventKeyDown)
+        tap = Quartz.CGEventTapCreate(
+            Quartz.kCGSessionEventTap,
+            Quartz.kCGHeadInsertEventTap,
+            Quartz.kCGEventTapOptionListenOnly,
+            mask,
+            callback,
+            None,
+        )
+        if tap is None:
+            print("WARN: 전역 중단 키 리스너 생성에 실패했습니다. macOS Accessibility/Input Monitoring 권한을 확인해야 합니다.")
+            return
+
+        source = Quartz.CFMachPortCreateRunLoopSource(None, tap, 0)
+        Quartz.CFRunLoopAddSource(Quartz.CFRunLoopGetCurrent(), source, Quartz.kCFRunLoopCommonModes)
+        Quartz.CGEventTapEnable(tap, True)
+        while not ABORT_EVENT.is_set():
+            Quartz.CFRunLoopRunInMode(Quartz.kCFRunLoopDefaultMode, 0.1, False)
+
+    thread = threading.Thread(target=listen, daemon=True)
+    thread.start()
 
 
 def replay_with_pyautogui(
@@ -215,25 +305,29 @@ def replay_with_pyautogui(
     pyautogui.FAILSAFE = True
 
     for stroke in strokes:
+        raise_if_aborted()
         start_x, start_y = stroke[0]
         pyautogui.moveTo(start_x, start_y)
-        if driver == "drag":
-            for x, y in stroke[1:]:
-                pyautogui.dragTo(
-                    x,
-                    y,
-                    duration=max(point_delay, 0.0),
-                    button="left",
-                )
-        else:
-            pyautogui.mouseDown(button="left")
-            try:
+        pyautogui.mouseDown(button="left")
+        try:
+            if driver == "drag":
                 for x, y in stroke[1:]:
+                    raise_if_aborted()
+                    pyautogui.dragTo(
+                        x,
+                        y,
+                        duration=max(point_delay, 0.0),
+                        button="left",
+                        mouseDownUp=False,
+                    )
+            else:
+                for x, y in stroke[1:]:
+                    raise_if_aborted()
                     pyautogui.moveTo(x, y)
                     if point_delay > 0:
                         time.sleep(point_delay)
-            finally:
-                pyautogui.mouseUp(button="left")
+        finally:
+            pyautogui.mouseUp(button="left")
         if stroke_delay > 0:
             time.sleep(stroke_delay)
 
@@ -245,6 +339,7 @@ def main() -> None:
     source = stroke_bbox(strokes)
     target = parse_rect(args.target_rect)
     mapped = map_strokes(strokes, source, target, args.fit)
+    mapped = filter_strokes_by_distance(mapped, args.min_point_distance)
 
     summarize(mapped, source, target)
     if not args.execute:
@@ -252,6 +347,7 @@ def main() -> None:
         return
 
     print(f"{args.countdown:.1f}초 후 마우스 입력을 시작합니다. 중단하려면 마우스를 화면 모서리로 이동하세요.")
+    install_abort_handlers()
     if args.activate_goodnotes:
         activate_goodnotes()
     time.sleep(max(0.0, args.countdown))
@@ -259,7 +355,11 @@ def main() -> None:
         require_frontmost_goodnotes()
     if args.pen_hotkey:
         send_hotkey(args.pen_hotkey)
-    replay_with_pyautogui(mapped, args.point_delay, args.stroke_delay, args.driver)
+    try:
+        replay_with_pyautogui(mapped, args.point_delay, args.stroke_delay, args.driver)
+    except KeyboardInterrupt:
+        print("사용자 인터럽트로 GoodNotes stroke 입력을 중단했습니다.")
+        sys.exit(130)
     print("done")
 
 

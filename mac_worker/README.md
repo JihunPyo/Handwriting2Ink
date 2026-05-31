@@ -51,6 +51,7 @@ target_rect: GoodNotes 필기 영역의 x,y,width,height
 fit: contain 또는 stretch
 driver: drag 또는 down_move
 sample_step: stroke point 샘플링 간격
+min_point_distance: 매핑 후 이 거리(px) 미만으로 움직인 중복/초근접 point 제거
 point_delay: point 사이 입력 지연
 stroke_delay: stroke 사이 입력 지연
 countdown: 실제 입력 전 대기 시간
@@ -136,7 +137,7 @@ conda run -n DV python mac_worker/goodnotes_controller.py \
   --execute
 ```
 
-`--strokes`가 지정되면 중앙 테스트 선 대신 `strokes.json` 기반 replay를 수행한다. 처음에는 `sample_step`을 크게 잡아 위치와 입력 가능성을 확인한 뒤, 품질 확인 시 `5`, `2`, `1` 순서로 줄인다.
+`--strokes`가 지정되면 중앙 테스트 선 대신 `strokes.json` 기반 replay를 수행한다. 처음에는 `sample_step`을 크게 잡아 위치와 입력 가능성을 확인할 수 있지만, 실제 품질 확인과 worker 기본 실행은 `sample_step=1`을 사용한다. `sample_step=10`처럼 큰 값은 곡선과 자소가 직선화되어 글씨가 크게 뭉개질 수 있다. 대신 `min_point_distance=1.0`으로 중복/초근접 point만 제거해 mouseDown 상태에서 같은 위치에 오래 머무르는 입력을 줄인다.
 
 stroke 입력 후 자동으로 올가미 선택과 복사까지 확인하려면 `--copy_after_draw`를 붙인다. 이 모드는 매핑된 stroke 화면 bbox에 padding을 더해 올가미 드래그 영역을 계산하고, `cmd+l`, bbox 주변 사각형 드래그, `cmd+c` 순서로 실행한다.
 
@@ -144,11 +145,14 @@ stroke 입력 후 자동으로 올가미 선택과 복사까지 확인하려면 
 conda run -n DV python mac_worker/goodnotes_controller.py \
   --strokes mac_worker/samples/crop_stroke_composite_strokes.json \
   --target_rect 320,180,980,720 \
-  --sample_step 10 \
-  --point_delay 0.001 \
-  --stroke_delay 0.01 \
+  --sample_step 1 \
+  --min_point_distance 1.0 \
+  --point_delay 0.002 \
+  --stroke_delay 0.02 \
   --copy_after_draw \
   --execute
 ```
 
 올가미가 너무 타이트하거나 주변 stroke를 놓치면 `--lasso_padding 40`처럼 padding을 늘린다.
+GoodNotes 올가미는 macOS drag event가 필요할 수 있으므로 기본 `lasso_driver`는 `drag`이다. 커서는 움직이는데 파란 올가미 파선이 생기지 않으면 `down_move` 방식이 아니라 `drag` 방식인지 먼저 확인한다. `pyautogui`의 정식 modifier 이름은 `cmd`가 아니라 `command`이므로 config의 복사 단축키는 `command+c`를 사용한다.
+펜 replay도 같은 이유로 한 stroke 안에서는 mouseDown을 유지한 채 macOS drag event를 이어서 보낸다. point마다 `dragTo()`를 독립 실행하면 GoodNotes에서 획이 잘게 끊겨 들어가고 획 지우개/올가미 동작이 불안정해질 수 있다.

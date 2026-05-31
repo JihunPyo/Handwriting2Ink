@@ -15,6 +15,7 @@ struct JobStatusResponse: Decodable {
     let status: String
     let message: String?
     let binaryReady: Bool
+    let strokesReady: Bool
     let errorCode: String?
     let errorMessage: String?
 
@@ -23,6 +24,7 @@ struct JobStatusResponse: Decodable {
         case status
         case message
         case binaryReady = "binary_ready"
+        case strokesReady = "strokes_ready"
         case errorCode = "error_code"
         case errorMessage = "error_message"
     }
