@@ -1,8 +1,11 @@
 __pycache__/
 *.py[cod]
 
+.mplconfig/
+.paddlex_cache/
+.xdg_cache/
+
 server/storage/
 mac_worker/jobs/
 
 .DS_Store
-

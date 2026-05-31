@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import time
 from pathlib import Path
 
@@ -38,10 +39,25 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stroke_delay", type=float, default=0.04, help="stroke 사이 대기 시간")
     parser.add_argument("--countdown", type=float, default=3.0, help="실제 실행 전 대기 시간")
     parser.add_argument(
+        "--require_frontmost_goodnotes",
+        action="store_true",
+        help="실제 입력 직전 GoodNotes가 전면 앱인지 확인합니다.",
+    )
+    parser.add_argument(
+        "--activate_goodnotes",
+        action="store_true",
+        help="실제 입력 전에 GoodNotes 앱을 전면으로 올립니다.",
+    )
+    parser.add_argument(
         "--driver",
         choices=("drag", "down_move"),
         default="drag",
         help="마우스 입력 방식. GoodNotes에는 drag 권장",
+    )
+    parser.add_argument(
+        "--pen_hotkey",
+        default=None,
+        help="실제 입력 전에 보낼 펜 선택 단축키. 예) cmd+p",
     )
     parser.add_argument("--execute", action="store_true", help="실제 마우스를 움직입니다. 없으면 dry-run")
     return parser.parse_args()
@@ -118,10 +134,67 @@ def sample_strokes(strokes: list[list[Point]], step: int) -> list[list[Point]]:
 
 def summarize(strokes: list[list[Point]], source: Rect, target: Rect) -> None:
     point_count = sum(len(stroke) for stroke in strokes)
+    mapped = stroke_bbox(strokes)
+    first_point = strokes[0][0]
+    last_point = strokes[-1][-1]
     print(f"stroke count: {len(strokes)}")
     print(f"point count: {point_count}")
     print(f"source bbox: {tuple(round(v, 2) for v in source)}")
     print(f"target rect: {tuple(round(v, 2) for v in target)}")
+    print(f"mapped screen bbox: {tuple(round(v, 2) for v in mapped)}")
+    print(f"first screen point: {tuple(round(v, 2) for v in first_point)}")
+    print(f"last screen point: {tuple(round(v, 2) for v in last_point)}")
+
+
+def require_frontmost_goodnotes() -> None:
+    result = subprocess.run(
+        [
+            "osascript",
+            "-e",
+            'tell application "System Events" to get name of first application process whose frontmost is true',
+        ],
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+    if result.returncode != 0:
+        detail = (result.stderr or result.stdout).strip()
+        raise RuntimeError(f"전면 앱 확인에 실패했습니다: {detail}")
+    frontmost = result.stdout.strip()
+    if frontmost not in {"Goodnotes", "GoodNotes"}:
+        raise RuntimeError(f"GoodNotes가 전면 앱이 아닙니다: {frontmost}")
+
+
+def activate_goodnotes() -> None:
+    errors = []
+    for app_name in ("Goodnotes", "GoodNotes"):
+        result = subprocess.run(
+            ["osascript", "-e", f'tell application "{app_name}" to activate'],
+            capture_output=True,
+            text=True,
+            timeout=5,
+        )
+        if result.returncode == 0:
+            time.sleep(0.5)
+            return
+        errors.append((result.stderr or result.stdout).strip())
+    raise RuntimeError(f"GoodNotes 활성화에 실패했습니다: {' | '.join(errors)}")
+
+
+def send_hotkey(hotkey: str) -> None:
+    try:
+        import pyautogui
+    except ImportError as exc:
+        raise RuntimeError(
+            "pyautogui가 설치되어 있지 않습니다. "
+            "conda run -n DV python -m pip install pyautogui 로 설치하세요."
+        ) from exc
+
+    keys = [part.strip().lower() for part in hotkey.split("+") if part.strip()]
+    if not keys:
+        raise RuntimeError("단축키가 비어 있습니다.")
+    pyautogui.hotkey(*keys)
+    time.sleep(0.2)
 
 
 def replay_with_pyautogui(
@@ -179,7 +252,13 @@ def main() -> None:
         return
 
     print(f"{args.countdown:.1f}초 후 마우스 입력을 시작합니다. 중단하려면 마우스를 화면 모서리로 이동하세요.")
+    if args.activate_goodnotes:
+        activate_goodnotes()
     time.sleep(max(0.0, args.countdown))
+    if args.require_frontmost_goodnotes:
+        require_frontmost_goodnotes()
+    if args.pen_hotkey:
+        send_hotkey(args.pen_hotkey)
     replay_with_pyautogui(mapped, args.point_delay, args.stroke_delay, args.driver)
     print("done")
 

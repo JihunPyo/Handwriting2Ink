@@ -10,6 +10,13 @@ from server.app.config import settings
 from server.app.models import JobStatus
 from server.app.services import job_service, storage_service
 
+PIPELINE_ARTIFACT_NAMES = (
+    "layout_overlay.png",
+    "crop_stroke_composite_black.png",
+    "crop_stroke_composite_summary.json",
+    "run_meta.json",
+)
+
 
 def run_stroke_extraction(job_id: str) -> None:
     job = job_service.require_job(job_id)
@@ -63,8 +70,16 @@ def run_real_pipeline(job_id: str, input_path: Path, output_path: Path) -> int:
     if not generated_path.exists():
         raise FileNotFoundError("pipeline.py가 strokes.json을 생성하지 않았습니다.")
     shutil.copy2(generated_path, output_path)
+    copy_pipeline_artifacts(pipeline_output_dir, job_service.job_dir(job_id))
     data = json.loads(output_path.read_text(encoding="utf-8"))
     return int(data.get("total_stroke_count") or len(data.get("strokes", [])))
+
+
+def copy_pipeline_artifacts(pipeline_output_dir: Path, job_dir: Path) -> None:
+    for name in PIPELINE_ARTIFACT_NAMES:
+        source = pipeline_output_dir / name
+        if source.exists():
+            shutil.copy2(source, job_dir / name)
 
 
 def write_mock_strokes(job_id: str, input_path: Path, output_path: Path) -> int:

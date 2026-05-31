@@ -8,7 +8,29 @@
   "target_rect": "320,180,980,720",
   "fit": "contain",
   "driver": "drag",
+  "sample_step": 1,
+  "point_delay": 0.002,
+  "stroke_delay": 0.04,
+  "countdown": 3.0,
   "execute_goodnotes_writer": false,
+  "activate_goodnotes": true,
+  "require_frontmost_goodnotes": true,
+  "pen_hotkey": "cmd+p",
+  "goodnotes_controller": {
+    "pen_button_point": null,
+    "black_color_point": null,
+    "paper_rect": null,
+    "driver": "drag",
+    "tool_select_mode": "hotkey",
+    "pen_hotkey": "cmd+p",
+    "lasso_hotkey": "cmd+l",
+    "target_rect": "320,180,980,720",
+    "fit": "contain",
+    "sample_step": 10,
+    "point_delay": 0.001,
+    "stroke_delay": 0.01,
+    "countdown": 2.0,
+    "line_length": 15.0
+  },
   "pasteboard_type": "com.goodnotesapp.goodnotes5.notes"
 }
-

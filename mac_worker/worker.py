@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import os
 import subprocess
 import sys
 import time
@@ -130,16 +131,34 @@ def run_goodnotes_replay(config: dict[str, Any], strokes_path: Path) -> None:
         "--driver",
         config.get("driver", "drag"),
     ]
+    for key, flag in (
+        ("sample_step", "--sample_step"),
+        ("point_delay", "--point_delay"),
+        ("stroke_delay", "--stroke_delay"),
+        ("countdown", "--countdown"),
+    ):
+        if key in config:
+            command.extend([flag, str(config[key])])
     if config.get("execute_goodnotes_writer"):
         command.append("--execute")
+    if config.get("require_frontmost_goodnotes"):
+        command.append("--require_frontmost_goodnotes")
+    if config.get("activate_goodnotes"):
+        command.append("--activate_goodnotes")
+    pen_hotkey = config.get("pen_hotkey") or config.get("goodnotes_controller", {}).get("pen_hotkey")
+    if pen_hotkey:
+        command.extend(["--pen_hotkey", str(pen_hotkey)])
     subprocess.run(command, cwd=PROJECT_ROOT, check=True)
 
 
 def dump_goodnotes_clipboard(output_path: Path) -> None:
     script_path = PROJECT_ROOT / "mac_worker" / "dump_goodnotes_clipboard.swift"
+    env = os.environ.copy()
+    env.setdefault("CLANG_MODULE_CACHE_PATH", "/private/tmp/h2i_clang_module_cache")
     subprocess.run(
         ["swift", str(script_path), str(output_path)],
         cwd=PROJECT_ROOT,
+        env=env,
         check=True,
     )
 
