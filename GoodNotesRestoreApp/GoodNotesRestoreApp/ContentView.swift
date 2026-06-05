@@ -82,7 +82,6 @@ struct ContentView: View {
                     Section("Job 상태") {
                         LabeledContent("Job ID", value: job.jobId)
                         LabeledContent("상태", value: job.status)
-                        LabeledContent("strokes.json", value: job.strokesReady ? "준비됨" : "대기 중")
                         LabeledContent("GoodNotes binary", value: job.binaryReady ? "준비됨" : "대기 중")
                         if let jobMessage = job.message {
                             Text(jobMessage)
