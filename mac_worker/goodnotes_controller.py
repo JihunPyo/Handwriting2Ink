@@ -2,8 +2,12 @@ from __future__ import annotations
 
 import argparse
 import json
+import math
+import os
+import signal
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import dataclass
 from pathlib import Path
@@ -25,6 +29,8 @@ from goodnotes_writer import stroke_bbox
 from goodnotes_writer import summarize
 
 GOODNOTES_APP_NAMES = ("Goodnotes", "GoodNotes")
+QUARTZ_REPLAY_SOURCE = PROJECT_ROOT / "mac_worker" / "goodnotes_quartz_replay.swift"
+QUARTZ_REPLAY_BINARY = Path("/private/tmp/h2i_goodnotes_quartz_replay")
 
 Point = tuple[float, float]
 Rect = tuple[float, float, float, float]
@@ -43,9 +49,15 @@ class ControllerConfig:
     fit: str = "contain"
     sample_step: int = 1
     min_point_distance: float = 1.0
+    input_backend: str = "quartz"
     point_delay: float = 0.002
     stroke_delay: float = 0.04
+    quartz_point_delay: float = 0.0005
+    quartz_stroke_delay: float = 0.005
     lasso_driver: str = "drag"
+    lasso_shape: str = "rectangle"
+    lasso_point_count: int = 120
+    lasso_close_overlap: float = 32.0
     lasso_padding: float = 24.0
     lasso_drag_duration: float = 0.8
     lasso_tool_delay: float = 0.6
@@ -78,8 +90,16 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--sample_step", type=int, default=None, help="N개 점마다 하나씩 사용")
     parser.add_argument("--min_point_distance", type=float, default=None, help="매핑 후 이 거리(px) 미만으로 움직인 점 생략")
+    parser.add_argument(
+        "--input_backend",
+        choices=("quartz", "pyautogui"),
+        default=None,
+        help="stroke/올가미 마우스 입력 backend. 기본값은 quartz",
+    )
     parser.add_argument("--point_delay", type=float, default=None, help="stroke point 사이 입력 지연")
     parser.add_argument("--stroke_delay", type=float, default=None, help="stroke 사이 입력 지연")
+    parser.add_argument("--quartz_point_delay", type=float, default=None, help="Quartz stroke point 사이 입력 지연")
+    parser.add_argument("--quartz_stroke_delay", type=float, default=None, help="Quartz stroke 사이 입력 지연")
     parser.add_argument(
         "--copy_after_draw",
         action="store_true",
@@ -87,6 +107,14 @@ def parse_args() -> argparse.Namespace:
     )
     parser.add_argument("--lasso_padding", type=float, default=None, help="자동 올가미 bbox padding(px)")
     parser.add_argument("--lasso_drag_duration", type=float, default=None, help="올가미 사각형 드래그 시간")
+    parser.add_argument(
+        "--lasso_shape",
+        choices=("rectangle", "ellipse"),
+        default=None,
+        help="올가미 경로 모양. 기본값 rectangle",
+    )
+    parser.add_argument("--lasso_point_count", type=int, default=None, help="올가미 경로 중간점 개수")
+    parser.add_argument("--lasso_close_overlap", type=float, default=None, help="올가미 닫기 시 시작 변을 겹쳐 지나가는 거리")
     parser.add_argument(
         "--lasso_driver",
         choices=("drag", "down_move"),
@@ -193,6 +221,9 @@ def controller_config(raw: dict[str, Any], args: argparse.Namespace) -> Controll
         if args.min_point_distance is not None
         else float(section.get("min_point_distance", raw.get("min_point_distance", 1.0)))
     )
+    input_backend = args.input_backend or section.get("input_backend") or raw.get("input_backend") or "quartz"
+    if input_backend not in {"quartz", "pyautogui"}:
+        raise ValueError("input_backend는 quartz 또는 pyautogui여야 합니다.")
     point_delay = (
         args.point_delay
         if args.point_delay is not None
@@ -203,7 +234,28 @@ def controller_config(raw: dict[str, Any], args: argparse.Namespace) -> Controll
         if args.stroke_delay is not None
         else float(section.get("stroke_delay", raw.get("stroke_delay", 0.04)))
     )
+    quartz_point_delay = (
+        args.quartz_point_delay
+        if args.quartz_point_delay is not None
+        else float(section.get("quartz_point_delay", raw.get("quartz_point_delay", 0.0005)))
+    )
+    quartz_stroke_delay = (
+        args.quartz_stroke_delay
+        if args.quartz_stroke_delay is not None
+        else float(section.get("quartz_stroke_delay", raw.get("quartz_stroke_delay", 0.005)))
+    )
     lasso_driver = args.lasso_driver or section.get("lasso_driver") or "drag"
+    lasso_shape = args.lasso_shape or section.get("lasso_shape") or "rectangle"
+    lasso_point_count = (
+        args.lasso_point_count
+        if args.lasso_point_count is not None
+        else int(section.get("lasso_point_count", 120))
+    )
+    lasso_close_overlap = (
+        args.lasso_close_overlap
+        if args.lasso_close_overlap is not None
+        else float(section.get("lasso_close_overlap", 32.0))
+    )
     lasso_padding = (
         args.lasso_padding
         if args.lasso_padding is not None
@@ -251,9 +303,15 @@ def controller_config(raw: dict[str, Any], args: argparse.Namespace) -> Controll
         fit=fit,
         sample_step=sample_step,
         min_point_distance=min_point_distance,
+        input_backend=input_backend,
         point_delay=point_delay,
         stroke_delay=stroke_delay,
+        quartz_point_delay=quartz_point_delay,
+        quartz_stroke_delay=quartz_stroke_delay,
         lasso_driver=lasso_driver,
+        lasso_shape=lasso_shape,
+        lasso_point_count=lasso_point_count,
+        lasso_close_overlap=lasso_close_overlap,
         lasso_padding=lasso_padding,
         lasso_drag_duration=lasso_drag_duration,
         lasso_tool_delay=lasso_tool_delay,
@@ -340,6 +398,86 @@ end tell
     time.sleep(1.0)
 
 
+def ensure_quartz_replay_binary() -> Path:
+    if not QUARTZ_REPLAY_SOURCE.exists():
+        raise RuntimeError(f"Quartz replay Swift source를 찾지 못했습니다: {QUARTZ_REPLAY_SOURCE}")
+
+    should_build = not QUARTZ_REPLAY_BINARY.exists()
+    if not should_build:
+        should_build = QUARTZ_REPLAY_SOURCE.stat().st_mtime > QUARTZ_REPLAY_BINARY.stat().st_mtime
+    if not should_build:
+        return QUARTZ_REPLAY_BINARY
+
+    env = os.environ.copy()
+    env.setdefault("CLANG_MODULE_CACHE_PATH", "/private/tmp/h2i_clang_module_cache")
+    subprocess.run(
+        [
+            "swiftc",
+            "-O",
+            str(QUARTZ_REPLAY_SOURCE),
+            "-o",
+            str(QUARTZ_REPLAY_BINARY),
+        ],
+        cwd=PROJECT_ROOT,
+        env=env,
+        check=True,
+    )
+    return QUARTZ_REPLAY_BINARY
+
+
+def run_quartz_payload(payload: dict[str, Any]) -> None:
+    binary_path = ensure_quartz_replay_binary()
+    with tempfile.NamedTemporaryFile(
+        "w",
+        encoding="utf-8",
+        suffix=".json",
+        prefix="h2i_quartz_",
+        dir="/private/tmp",
+        delete=False,
+    ) as file:
+        json.dump(payload, file, ensure_ascii=False)
+        payload_path = Path(file.name)
+
+    command = [str(binary_path), "--payload", str(payload_path)]
+    process: subprocess.Popen[Any] | None = None
+    try:
+        process = subprocess.Popen(command, cwd=PROJECT_ROOT)
+        while True:
+            return_code = process.poll()
+            if return_code is not None:
+                if return_code != 0:
+                    raise subprocess.CalledProcessError(return_code, command)
+                return
+            raise_if_aborted()
+            time.sleep(0.05)
+    except KeyboardInterrupt:
+        if process is not None and process.poll() is None:
+            process.send_signal(signal.SIGINT)
+            try:
+                process.wait(timeout=3)
+            except subprocess.TimeoutExpired:
+                process.kill()
+                process.wait()
+        raise
+    finally:
+        payload_path.unlink(missing_ok=True)
+
+
+def replay_strokes_with_backend(strokes: list[list[Point]], config: ControllerConfig) -> None:
+    if config.input_backend == "quartz":
+        run_quartz_payload(
+            {
+                "kind": "strokes",
+                "strokes": strokes,
+                "point_delay": max(config.quartz_point_delay, 0.0),
+                "stroke_delay": max(config.quartz_stroke_delay, 0.0),
+            }
+        )
+        return
+
+    replay_with_pyautogui(strokes, config.point_delay, config.stroke_delay, config.driver)
+
+
 def screen_size() -> tuple[int, int]:
     try:
         import pyautogui
@@ -403,23 +541,85 @@ def select_lasso(config: ControllerConfig) -> None:
     send_hotkey(config.lasso_hotkey)
 
 
-def drag_lasso_rect(rect: Rect, duration: float, driver: str) -> None:
+def interpolate_path(vertices: list[Point], point_count: int) -> list[Point]:
+    point_count = max(point_count, len(vertices))
+    segments = list(zip(vertices, vertices[1:]))
+    lengths = [math.dist(start, end) for start, end in segments]
+    total_length = max(sum(lengths), 1.0)
+    points = [vertices[0]]
+    for (start, end), length in zip(segments, lengths):
+        steps = max(1, round(point_count * length / total_length))
+        for index in range(1, steps + 1):
+            ratio = index / steps
+            points.append(
+                (
+                    start[0] + (end[0] - start[0]) * ratio,
+                    start[1] + (end[1] - start[1]) * ratio,
+                )
+            )
+    return points
+
+
+def rectangle_lasso_path(rect: Rect, point_count: int, close_overlap: float) -> list[Point]:
+    x, y, width, height = rect
+    left, top = x, y
+    right, bottom = x + width, y + height
+    top_mid = (left + width / 2.0, top)
+    overlap = min(max(close_overlap, 0.0), width / 3.0)
+    vertices = [
+        top_mid,
+        (right, top),
+        (right, bottom),
+        (left, bottom),
+        (left, top),
+        top_mid,
+        (top_mid[0] + overlap, top),
+    ]
+    return interpolate_path(vertices, point_count)
+
+
+def ellipse_lasso_path(rect: Rect, point_count: int, close_overlap: float) -> list[Point]:
+    x, y, width, height = rect
+    center_x, center_y = x + width / 2.0, y + height / 2.0
+    radius_x, radius_y = width / 2.0, height / 2.0
+    point_count = max(point_count, 24)
+    average_radius = max((radius_x + radius_y) / 2.0, 1.0)
+    overlap_angle = max(close_overlap, 0.0) / average_radius
+    total_angle = math.tau + overlap_angle
+    start_angle = -math.pi / 2.0
+    return [
+        (
+            center_x + math.cos(start_angle + total_angle * index / point_count) * radius_x,
+            center_y + math.sin(start_angle + total_angle * index / point_count) * radius_y,
+        )
+        for index in range(point_count + 1)
+    ]
+
+
+def build_lasso_path(config: ControllerConfig, rect: Rect) -> list[Point]:
+    if config.lasso_shape == "ellipse":
+        return ellipse_lasso_path(rect, config.lasso_point_count, config.lasso_close_overlap)
+    return rectangle_lasso_path(rect, config.lasso_point_count, config.lasso_close_overlap)
+
+
+def drag_lasso_rect(rect: Rect, config: ControllerConfig) -> None:
+    points = build_lasso_path(config, rect)
+    if config.input_backend == "quartz":
+        run_quartz_payload(
+            {
+                "kind": "drag_path",
+                "points": points,
+                "drag_duration": max(config.lasso_drag_duration, 0.0),
+            }
+        )
+        return
+
     try:
         import pyautogui
     except ImportError as exc:
         raise RuntimeError("pyautogui가 설치되어 있지 않습니다.") from exc
 
-    x, y, width, height = rect
-    left, top = x, y
-    right, bottom = x + width, y + height
-    points = [
-        (left, top),
-        (right, top),
-        (right, bottom),
-        (left, bottom),
-        (left, top),
-    ]
-    segment_duration = max(duration, 0.0) / max(len(points) - 1, 1)
+    segment_duration = max(config.lasso_drag_duration, 0.0) / max(len(points) - 1, 1)
 
     pyautogui.PAUSE = 0
     pyautogui.FAILSAFE = True
@@ -428,7 +628,7 @@ def drag_lasso_rect(rect: Rect, duration: float, driver: str) -> None:
     try:
         for point in points[1:]:
             raise_if_aborted()
-            if driver == "drag":
+            if config.lasso_driver == "drag":
                 pyautogui.dragTo(
                     *point,
                     duration=segment_duration,
@@ -444,7 +644,7 @@ def drag_lasso_rect(rect: Rect, duration: float, driver: str) -> None:
 def copy_with_lasso(config: ControllerConfig, selection_rect: Rect) -> None:
     select_lasso(config)
     time.sleep(max(config.lasso_tool_delay, 0.0))
-    drag_lasso_rect(selection_rect, config.lasso_drag_duration, config.lasso_driver)
+    drag_lasso_rect(selection_rect, config)
     time.sleep(max(config.copy_delay, 0.0))
     attempts = max(config.copy_retries, 1)
     for index in range(attempts):
@@ -516,6 +716,7 @@ def main() -> None:
     if line_center is not None:
         print(f"line center: {tuple(round(v, 2) for v in line_center)}")
     print(f"line length: {config.line_length}")
+    print(f"input backend: {config.input_backend}")
     print(f"driver: {config.driver}")
     if mapped_strokes is not None:
         print(f"draw mode: strokes")
@@ -525,10 +726,15 @@ def main() -> None:
         print(f"min point distance: {config.min_point_distance}")
         print(f"point delay: {config.point_delay}")
         print(f"stroke delay: {config.stroke_delay}")
+        print(f"quartz point delay: {config.quartz_point_delay}")
+        print(f"quartz stroke delay: {config.quartz_stroke_delay}")
         if selection_rect is not None:
             print(f"copy after draw: {args.copy_after_draw}")
             print(f"lasso selection rect: {tuple(round(v, 2) for v in selection_rect)}")
             print(f"lasso driver: {config.lasso_driver}")
+            print(f"lasso shape: {config.lasso_shape}")
+            print(f"lasso point count: {config.lasso_point_count}")
+            print(f"lasso close overlap: {config.lasso_close_overlap}")
             print(f"lasso padding: {config.lasso_padding}")
             print(f"lasso drag duration: {config.lasso_drag_duration}")
             print(f"lasso tool delay: {config.lasso_tool_delay}")
@@ -555,7 +761,7 @@ def main() -> None:
     time.sleep(max(config.countdown, 0.0))
     try:
         if mapped_strokes is not None:
-            replay_with_pyautogui(mapped_strokes, config.point_delay, config.stroke_delay, config.driver)
+            replay_strokes_with_backend(mapped_strokes, config)
             if args.copy_after_draw and selection_rect is not None:
                 copy_with_lasso(config, selection_rect)
                 print("copied with lasso")

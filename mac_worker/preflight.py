@@ -179,17 +179,22 @@ def check_swift_typecheck() -> CheckResult:
         return CheckResult("Swift typecheck", False, "swiftc를 찾지 못했습니다.")
     env = os.environ.copy()
     env.setdefault("CLANG_MODULE_CACHE_PATH", "/private/tmp/h2i_clang_module_cache")
-    result = subprocess.run(
-        ["swiftc", "-typecheck", "mac_worker/dump_goodnotes_clipboard.swift"],
-        cwd=PROJECT_ROOT,
-        env=env,
-        capture_output=True,
-        text=True,
-    )
-    if result.returncode == 0:
-        return CheckResult("Swift typecheck", True, "dump_goodnotes_clipboard.swift typecheck 통과")
-    detail = (result.stderr or result.stdout).strip()
-    return CheckResult("Swift typecheck", False, detail)
+    swift_files = [
+        "mac_worker/dump_goodnotes_clipboard.swift",
+        "mac_worker/goodnotes_quartz_replay.swift",
+    ]
+    for swift_file in swift_files:
+        result = subprocess.run(
+            ["swiftc", "-typecheck", swift_file],
+            cwd=PROJECT_ROOT,
+            env=env,
+            capture_output=True,
+            text=True,
+        )
+        if result.returncode != 0:
+            detail = (result.stderr or result.stdout).strip()
+            return CheckResult("Swift typecheck", False, f"{swift_file}: {detail}")
+    return CheckResult("Swift typecheck", True, "Swift worker scripts typecheck 통과")
 
 
 def check_strokes(path: str | None) -> CheckResult:

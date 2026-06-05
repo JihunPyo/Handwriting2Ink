@@ -1,5 +1,42 @@
 # Commit Log
 
+## 2026-06-05 Swift Quartz replay CLI 추가
+
+- `mac_worker/goodnotes_quartz_replay.swift`를 추가했다.
+  - `CGEvent` 기반으로 stroke와 올가미 drag path를 입력하도록 했다.
+  - JSON payload와 `--dry-run` 검증 모드를 지원하도록 했다.
+  - SIGINT/SIGTERM 중단 시 마지막 좌표에서 mouseUp을 보내고 종료하도록 했다.
+- `mac_worker/goodnotes_controller.py`에 `input_backend` 설정을 추가했다.
+  - 기본값을 `quartz`로 두고, 기존 `pyautogui` stroke/올가미 replay 경로는 fallback으로 유지했다.
+  - Swift 실행기는 `/private/tmp/h2i_goodnotes_quartz_replay`로 lazy compile하도록 했다.
+  - Quartz 전용 `quartz_point_delay`, `quartz_stroke_delay` 설정을 추가했다.
+- `mac_worker/config.json`과 `mac_worker/README.md`에 Quartz backend 기본값, fallback 방법, smoke test 절차를 반영했다.
+- `mac_worker/preflight.py --check-swift`가 pasteboard dump와 Quartz replay Swift 파일을 함께 typecheck하도록 보강했다.
+
+## 2026-06-01 Worker 기본 올가미 파라미터 조정
+
+- 실제 GoodNotes 테스트에서 안정적으로 닫힌 올가미 파라미터를 `mac_worker/config.json` 기본값에 반영했다.
+  - `lasso_padding`을 `40.0`으로 조정했다.
+  - `lasso_drag_duration`을 `1.5`로 조정했다.
+  - `lasso_point_count`를 `160`으로 조정했다.
+  - `lasso_close_overlap`을 `48.0`으로 조정했다.
+- `mac_worker/README.md`에 worker 기본 올가미 설정값을 기록했다.
+
+## 2026-06-01 GoodNotes 올가미 닫힘 경로 안정화
+
+- `mac_worker/goodnotes_controller.py`의 올가미 경로 생성을 보강했다.
+  - 사각형 올가미가 마지막에 물방울 형태로 닫히는 문제를 줄이기 위해 시작점을 모서리가 아닌 위쪽 변 중앙으로 옮겼다.
+  - 시작점으로 돌아온 뒤 바로 mouseUp하지 않고 `lasso_close_overlap`만큼 위쪽 변을 겹쳐 지나가도록 했다.
+  - 5개 점짜리 사각형 대신 `lasso_point_count` 기반 중간점을 생성해 더 연속적인 올가미 경로를 입력하도록 했다.
+  - 필요 시 `lasso_shape=ellipse`로 타원형 올가미를 테스트할 수 있게 했다.
+- `mac_worker/config.json`과 `mac_worker/README.md`에 `lasso_shape`, `lasso_point_count`, `lasso_close_overlap` 설정을 추가했다.
+
+## 2026-06-01 iPad job 상태 응답 계약 정렬
+
+- `GoodNotesRestoreApp/GoodNotesRestoreApp/Models.swift`에서 계약에 없는 `strokes_ready` 필수 디코딩을 제거했다.
+  - GitHub/Railway 서버의 `GET /api/jobs/{job_id}` 응답에 `strokes_ready`가 없어도 앱이 디코딩 실패하지 않도록 했다.
+- `GoodNotesRestoreApp/GoodNotesRestoreApp/ContentView.swift`의 `strokes.json` 별도 표시 줄을 제거하고, 계약에 명시된 `status`와 `binary_ready` 중심으로 job 상태를 표시하도록 했다.
+
 ## 2026-06-01 로컬 워커 설정 분리
 
 - `mac_worker/worker.py`가 `mac_worker/config.local.json`을 읽어 기본 config 위에 덮어쓰도록 했다.

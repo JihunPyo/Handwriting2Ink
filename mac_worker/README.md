@@ -26,6 +26,8 @@ conda run -n DV python mac_worker/worker.py --mode replay --once
 conda run -n DV python mac_worker/preflight.py --check-swift
 ```
 
+`--check-swift`는 pasteboard binary 추출 스크립트와 Quartz replay 스크립트를 함께 typecheck한다.
+
 특정 `strokes.json`까지 함께 확인하려면 다음처럼 실행한다.
 
 ```bash
@@ -49,11 +51,14 @@ conda run -n DV python mac_worker/preflight.py \
 ```text
 target_rect: GoodNotes 필기 영역의 x,y,width,height
 fit: contain 또는 stretch
-driver: drag 또는 down_move
 sample_step: stroke point 샘플링 간격
 min_point_distance: 매핑 후 이 거리(px) 미만으로 움직인 중복/초근접 point 제거
-point_delay: point 사이 입력 지연
-stroke_delay: stroke 사이 입력 지연
+input_backend: quartz 또는 pyautogui. 기본값은 quartz
+quartz_point_delay: Quartz backend의 point 사이 입력 지연
+quartz_stroke_delay: Quartz backend의 stroke 사이 입력 지연
+driver: pyautogui fallback에서 drag 또는 down_move
+point_delay: pyautogui fallback의 point 사이 입력 지연
+stroke_delay: pyautogui fallback의 stroke 사이 입력 지연
 countdown: 실제 입력 전 대기 시간
 execute_goodnotes_writer: true일 때만 실제 마우스 입력 수행
 execute_goodnotes_controller: true일 때 worker replay에서 실제 GoodNotes 입력과 올가미 복사 수행
@@ -123,7 +128,7 @@ conda run -n DV python mac_worker/goodnotes_controller.py \
   --execute
 ```
 
-이미 펜과 검은색이 선택된 상태에서 입력 계층만 확인하려면 `--skip_pen_select`를 명시적으로 사용한다. GoodNotes 필기 입력은 `drag` 방식에서 정상 동작하는 것으로 확인했으므로, 기본 컨트롤러 설정은 `drag`를 사용한다.
+이미 펜과 검은색이 선택된 상태에서 입력 계층만 확인하려면 `--skip_pen_select`를 명시적으로 사용한다. 기본 컨트롤러 설정은 Swift/Quartz backend를 사용하며, pyautogui fallback을 선택한 경우에는 `drag` 방식이 GoodNotes 필기 입력에서 안정적으로 동작한다.
 
 샘플 `strokes.json`까지 포함해 GoodNotes 전면화, 전체화면 전환, `cmd+p` 펜 선택, 실제 stroke 입력을 한 번에 확인하려면 다음처럼 실행한다.
 
@@ -132,12 +137,24 @@ conda run -n DV python mac_worker/goodnotes_controller.py \
   --strokes mac_worker/samples/crop_stroke_composite_strokes.json \
   --target_rect 320,180,980,720 \
   --sample_step 10 \
-  --point_delay 0.001 \
-  --stroke_delay 0.01 \
+  --quartz_point_delay 0.0005 \
+  --quartz_stroke_delay 0.005 \
   --execute
 ```
 
 `--strokes`가 지정되면 중앙 테스트 선 대신 `strokes.json` 기반 replay를 수행한다. 처음에는 `sample_step`을 크게 잡아 위치와 입력 가능성을 확인할 수 있지만, 실제 품질 확인과 worker 기본 실행은 `sample_step=1`을 사용한다. `sample_step=10`처럼 큰 값은 곡선과 자소가 직선화되어 글씨가 크게 뭉개질 수 있다. 대신 `min_point_distance=1.0`으로 중복/초근접 point만 제거해 mouseDown 상태에서 같은 위치에 오래 머무르는 입력을 줄인다.
+
+기본 `input_backend=quartz`는 `mac_worker/goodnotes_quartz_replay.swift`를 `/private/tmp/h2i_goodnotes_quartz_replay`로 lazy compile한 뒤 `CGEvent` 기반 mouse event를 직접 전송한다. Swift module cache는 `/private/tmp/h2i_clang_module_cache`를 사용한다. 기존 pyautogui 경로로 비교하거나 되돌리려면 `--input_backend pyautogui`를 명시한다.
+
+```bash
+conda run -n DV python mac_worker/goodnotes_controller.py \
+  --strokes mac_worker/samples/crop_stroke_composite_strokes.json \
+  --target_rect 320,180,980,720 \
+  --input_backend pyautogui \
+  --point_delay 0.002 \
+  --stroke_delay 0.02 \
+  --execute
+```
 
 stroke 입력 후 자동으로 올가미 선택과 복사까지 확인하려면 `--copy_after_draw`를 붙인다. 이 모드는 매핑된 stroke 화면 bbox에 padding을 더해 올가미 드래그 영역을 계산하고, `cmd+l`, bbox 주변 사각형 드래그, `cmd+c` 순서로 실행한다.
 
@@ -147,12 +164,13 @@ conda run -n DV python mac_worker/goodnotes_controller.py \
   --target_rect 320,180,980,720 \
   --sample_step 1 \
   --min_point_distance 1.0 \
-  --point_delay 0.002 \
-  --stroke_delay 0.02 \
+  --quartz_point_delay 0.0005 \
+  --quartz_stroke_delay 0.005 \
   --copy_after_draw \
   --execute
 ```
 
-올가미가 너무 타이트하거나 주변 stroke를 놓치면 `--lasso_padding 40`처럼 padding을 늘린다.
+현재 worker 기본 올가미 설정은 실제 GoodNotes 테스트에서 안정적으로 닫힌 `lasso_padding=40`, `lasso_drag_duration=1.5`, `lasso_point_count=160`, `lasso_close_overlap=48`을 사용한다. 올가미가 너무 타이트하거나 주변 stroke를 놓치면 `--lasso_padding 60`처럼 padding을 더 늘린다.
 GoodNotes 올가미는 macOS drag event가 필요할 수 있으므로 기본 `lasso_driver`는 `drag`이다. 커서는 움직이는데 파란 올가미 파선이 생기지 않으면 `down_move` 방식이 아니라 `drag` 방식인지 먼저 확인한다. `pyautogui`의 정식 modifier 이름은 `cmd`가 아니라 `command`이므로 config의 복사 단축키는 `command+c`를 사용한다.
+사각형 올가미의 마지막 부분이 물방울처럼 닫히면 `--lasso_close_overlap 32`처럼 시작 변을 겹쳐 지나가게 하거나 `--lasso_point_count 160`으로 중간점을 늘린다. 사각형 모서리 닫힘이 계속 불안정하면 `--lasso_shape ellipse`로 넓게 감싸는 방식도 테스트한다.
 펜 replay도 같은 이유로 한 stroke 안에서는 mouseDown을 유지한 채 macOS drag event를 이어서 보낸다. point마다 `dragTo()`를 독립 실행하면 GoodNotes에서 획이 잘게 끊겨 들어가고 획 지우개/올가미 동작이 불안정해질 수 있다.
