@@ -26,6 +26,7 @@ private struct ReplayPayload: Decodable {
     let points: [ReplayPoint]?
     let pointDelay: Double?
     let strokeDelay: Double?
+    let mouseDownDelay: Double?
     let dragDuration: Double?
 
     enum CodingKeys: String, CodingKey {
@@ -34,6 +35,7 @@ private struct ReplayPayload: Decodable {
         case points
         case pointDelay = "point_delay"
         case strokeDelay = "stroke_delay"
+        case mouseDownDelay = "mouse_down_delay"
         case dragDuration = "drag_duration"
     }
 }
@@ -60,6 +62,7 @@ private enum ReplayError: Error, CustomStringConvertible {
 }
 
 private var wasInterrupted = false
+private let eventSource = CGEventSource(stateID: .hidSystemState)
 
 private func signalHandler(_ signal: Int32) {
     wasInterrupted = true
@@ -133,13 +136,14 @@ private func sleepSeconds(_ seconds: Double) throws {
 
 private func postMouseEvent(_ type: CGEventType, at point: CGPoint) throws {
     guard let event = CGEvent(
-        mouseEventSource: nil,
+        mouseEventSource: eventSource,
         mouseType: type,
         mouseCursorPosition: point,
         mouseButton: .left
     ) else {
         throw ReplayError.eventCreationFailed("Failed to create mouse event: \(type.rawValue)")
     }
+    event.setIntegerValueField(.mouseEventClickState, value: 1)
     event.post(tap: .cghidEventTap)
 }
 
@@ -156,6 +160,7 @@ private func summarize(_ payload: ReplayPayload) throws {
         print("point count: \(pointCount)")
         print("point delay: \(payload.pointDelay ?? 0.0)")
         print("stroke delay: \(payload.strokeDelay ?? 0.0)")
+        print("mouse down delay: \(payload.mouseDownDelay ?? 0.0)")
     case "drag_path":
         let points = payload.points ?? []
         guard points.count >= 2 else {
@@ -164,12 +169,18 @@ private func summarize(_ payload: ReplayPayload) throws {
         print("kind: drag_path")
         print("point count: \(points.count)")
         print("drag duration: \(payload.dragDuration ?? 0.0)")
+        print("mouse down delay: \(payload.mouseDownDelay ?? 0.0)")
     default:
         throw ReplayError.invalidPayload("Unsupported payload kind: \(payload.kind)")
     }
 }
 
-private func replayStrokes(_ strokes: [[ReplayPoint]], pointDelay: Double, strokeDelay: Double) throws {
+private func replayStrokes(
+    _ strokes: [[ReplayPoint]],
+    pointDelay: Double,
+    strokeDelay: Double,
+    mouseDownDelay: Double
+) throws {
     var mouseIsDown = false
     var lastPoint: CGPoint?
 
@@ -197,6 +208,7 @@ private func replayStrokes(_ strokes: [[ReplayPoint]], pointDelay: Double, strok
         try postMouseEvent(.mouseMoved, at: start)
         try postMouseEvent(.leftMouseDown, at: start)
         mouseIsDown = true
+        try sleepSeconds(mouseDownDelay)
 
         for point in stroke.dropFirst() {
             if wasInterrupted {
@@ -214,7 +226,7 @@ private func replayStrokes(_ strokes: [[ReplayPoint]], pointDelay: Double, strok
     }
 }
 
-private func replayDragPath(_ points: [ReplayPoint], dragDuration: Double) throws {
+private func replayDragPath(_ points: [ReplayPoint], dragDuration: Double, mouseDownDelay: Double) throws {
     guard points.count >= 2 else {
         throw ReplayError.invalidPayload("drag_path payload requires at least two points.")
     }
@@ -239,6 +251,7 @@ private func replayDragPath(_ points: [ReplayPoint], dragDuration: Double) throw
     try postMouseEvent(.mouseMoved, at: start)
     try postMouseEvent(.leftMouseDown, at: start)
     mouseIsDown = true
+    try sleepSeconds(mouseDownDelay)
 
     for point in points.dropFirst() {
         if wasInterrupted {
@@ -263,13 +276,18 @@ private func replay(_ payload: ReplayPayload) throws {
         try replayStrokes(
             strokes,
             pointDelay: payload.pointDelay ?? 0.0,
-            strokeDelay: payload.strokeDelay ?? 0.0
+            strokeDelay: payload.strokeDelay ?? 0.0,
+            mouseDownDelay: payload.mouseDownDelay ?? 0.0
         )
     case "drag_path":
         guard let points = payload.points else {
             throw ReplayError.invalidPayload("drag_path payload is missing points.")
         }
-        try replayDragPath(points, dragDuration: payload.dragDuration ?? 0.0)
+        try replayDragPath(
+            points,
+            dragDuration: payload.dragDuration ?? 0.0,
+            mouseDownDelay: payload.mouseDownDelay ?? 0.0
+        )
     default:
         throw ReplayError.invalidPayload("Unsupported payload kind: \(payload.kind)")
     }

@@ -1,5 +1,16 @@
 # Commit Log
 
+## 2026-06-05 Swift Quartz replay 품질 안정화
+
+- `mac_worker/goodnotes_quartz_replay.swift`의 Quartz 이벤트 입력을 보강했다.
+  - `CGEventSource(.hidSystemState)`와 click state를 명시해 mouse event 성격을 더 안정적으로 전달하도록 했다.
+  - mouseDown 직후 짧은 대기를 추가해 GoodNotes가 stroke 시작을 놓치는 문제를 줄이도록 했다.
+- `mac_worker/goodnotes_controller.py`와 `mac_worker/config.json`의 Quartz 기본 속도를 조정했다.
+  - `quartz_point_delay`를 `0.0015`, `quartz_stroke_delay`를 `0.008`로 조정했다.
+  - `quartz_mouse_down_delay=0.006`을 추가했다.
+  - stroke 입력 직후 올가미 전환 전 `quartz_post_draw_delay=0.8` 대기를 추가했다.
+- `mac_worker/README.md`에 Quartz 이벤트가 너무 빠를 때 GoodNotes가 point를 병합/누락할 수 있다는 내용과 조정 방법을 기록했다.
+
 ## 2026-06-05 Swift Quartz replay CLI 추가
 
 - `mac_worker/goodnotes_quartz_replay.swift`를 추가했다.

@@ -52,8 +52,10 @@ class ControllerConfig:
     input_backend: str = "quartz"
     point_delay: float = 0.002
     stroke_delay: float = 0.04
-    quartz_point_delay: float = 0.0005
-    quartz_stroke_delay: float = 0.005
+    quartz_point_delay: float = 0.0015
+    quartz_stroke_delay: float = 0.008
+    quartz_mouse_down_delay: float = 0.006
+    quartz_post_draw_delay: float = 0.8
     lasso_driver: str = "drag"
     lasso_shape: str = "rectangle"
     lasso_point_count: int = 120
@@ -100,6 +102,8 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--stroke_delay", type=float, default=None, help="stroke 사이 입력 지연")
     parser.add_argument("--quartz_point_delay", type=float, default=None, help="Quartz stroke point 사이 입력 지연")
     parser.add_argument("--quartz_stroke_delay", type=float, default=None, help="Quartz stroke 사이 입력 지연")
+    parser.add_argument("--quartz_mouse_down_delay", type=float, default=None, help="Quartz mouseDown 직후 drag 전 대기 시간")
+    parser.add_argument("--quartz_post_draw_delay", type=float, default=None, help="Quartz stroke 입력 후 올가미 전환 전 대기 시간")
     parser.add_argument(
         "--copy_after_draw",
         action="store_true",
@@ -237,12 +241,22 @@ def controller_config(raw: dict[str, Any], args: argparse.Namespace) -> Controll
     quartz_point_delay = (
         args.quartz_point_delay
         if args.quartz_point_delay is not None
-        else float(section.get("quartz_point_delay", raw.get("quartz_point_delay", 0.0005)))
+        else float(section.get("quartz_point_delay", raw.get("quartz_point_delay", 0.0015)))
     )
     quartz_stroke_delay = (
         args.quartz_stroke_delay
         if args.quartz_stroke_delay is not None
-        else float(section.get("quartz_stroke_delay", raw.get("quartz_stroke_delay", 0.005)))
+        else float(section.get("quartz_stroke_delay", raw.get("quartz_stroke_delay", 0.008)))
+    )
+    quartz_mouse_down_delay = (
+        args.quartz_mouse_down_delay
+        if args.quartz_mouse_down_delay is not None
+        else float(section.get("quartz_mouse_down_delay", raw.get("quartz_mouse_down_delay", 0.006)))
+    )
+    quartz_post_draw_delay = (
+        args.quartz_post_draw_delay
+        if args.quartz_post_draw_delay is not None
+        else float(section.get("quartz_post_draw_delay", raw.get("quartz_post_draw_delay", 0.8)))
     )
     lasso_driver = args.lasso_driver or section.get("lasso_driver") or "drag"
     lasso_shape = args.lasso_shape or section.get("lasso_shape") or "rectangle"
@@ -308,6 +322,8 @@ def controller_config(raw: dict[str, Any], args: argparse.Namespace) -> Controll
         stroke_delay=stroke_delay,
         quartz_point_delay=quartz_point_delay,
         quartz_stroke_delay=quartz_stroke_delay,
+        quartz_mouse_down_delay=quartz_mouse_down_delay,
+        quartz_post_draw_delay=quartz_post_draw_delay,
         lasso_driver=lasso_driver,
         lasso_shape=lasso_shape,
         lasso_point_count=lasso_point_count,
@@ -471,6 +487,7 @@ def replay_strokes_with_backend(strokes: list[list[Point]], config: ControllerCo
                 "strokes": strokes,
                 "point_delay": max(config.quartz_point_delay, 0.0),
                 "stroke_delay": max(config.quartz_stroke_delay, 0.0),
+                "mouse_down_delay": max(config.quartz_mouse_down_delay, 0.0),
             }
         )
         return
@@ -610,6 +627,7 @@ def drag_lasso_rect(rect: Rect, config: ControllerConfig) -> None:
                 "kind": "drag_path",
                 "points": points,
                 "drag_duration": max(config.lasso_drag_duration, 0.0),
+                "mouse_down_delay": max(config.quartz_mouse_down_delay, 0.0),
             }
         )
         return
@@ -728,6 +746,8 @@ def main() -> None:
         print(f"stroke delay: {config.stroke_delay}")
         print(f"quartz point delay: {config.quartz_point_delay}")
         print(f"quartz stroke delay: {config.quartz_stroke_delay}")
+        print(f"quartz mouse down delay: {config.quartz_mouse_down_delay}")
+        print(f"quartz post draw delay: {config.quartz_post_draw_delay}")
         if selection_rect is not None:
             print(f"copy after draw: {args.copy_after_draw}")
             print(f"lasso selection rect: {tuple(round(v, 2) for v in selection_rect)}")
@@ -763,6 +783,8 @@ def main() -> None:
         if mapped_strokes is not None:
             replay_strokes_with_backend(mapped_strokes, config)
             if args.copy_after_draw and selection_rect is not None:
+                if config.input_backend == "quartz":
+                    time.sleep(max(config.quartz_post_draw_delay, 0.0))
                 copy_with_lasso(config, selection_rect)
                 print("copied with lasso")
         else:
