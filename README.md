@@ -79,7 +79,7 @@ iPad 앱은 이미지 업로드와 job 상태 확인, 최종 Goodnotes binary의
 
 서비스는 사용자 인터페이스인 iPadOS 앱, 이미지 처리와 job orchestration을 담당하는 FastAPI 서버, Goodnotes GUI 자동화를 담당하는 Mac 워커로 분리되어 있다.
 
-![Handwriting2Ink 시스템 아키텍처](docs/assets/system-architecture.png)
+![Handwriting2Ink 시스템 아키텍처](docs/assets/H2I-ServiceArchitecture.png)
 
 | 구성 요소 | 책임 |
 | --- | --- |
