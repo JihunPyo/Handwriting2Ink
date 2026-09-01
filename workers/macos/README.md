@@ -114,7 +114,7 @@ conda run -n DV python workers/macos/calibrate_input.py \
 conda run -n DV python workers/macos/goodnotes_controller.py --execute
 ```
 
-GoodNotes 펜 선택은 기본적으로 `cmd+p` 단축키를 사용한다. 올가미 선택은 `cmd+l` 단축키를 사용하며, 테스트 선을 그린 직후 올가미 전환까지 확인하려면 다음처럼 실행한다.
+현재 검증된 Goodnotes 도구 단축키에 따라 펜 선택은 `cmd+p`, 올가미 선택은 `cmd+l`을 사용한다. 테스트 선을 그린 직후 올가미 전환까지 확인하려면 다음처럼 실행한다.
 
 ```bash
 conda run -n DV python workers/macos/goodnotes_controller.py \
@@ -161,7 +161,7 @@ conda run -n DV python workers/macos/goodnotes_controller.py \
   --execute
 ```
 
-stroke 입력 후 자동으로 올가미 선택과 복사까지 확인하려면 `--copy_after_draw`를 붙인다. 이 모드는 매핑된 stroke 화면 bbox에 padding을 더해 올가미 드래그 영역을 계산하고, `cmd+l`, bbox 주변 사각형 드래그, `cmd+c` 순서로 실행한다.
+stroke 입력 후 자동으로 올가미 선택과 복사까지 확인하려면 `--copy_after_draw`를 붙인다. 이 모드는 매핑된 stroke 화면 bbox에 padding을 더해 올가미 드래그 영역을 계산하고, `cmd+l`, bbox 주변 사각형 드래그, `cmd+c` 순서로 실행한다. 올가미 단축키 전송 직전에 Goodnotes를 다시 활성화하고 전면 앱 여부를 확인한다.
 
 ```bash
 conda run -n DV python workers/macos/goodnotes_controller.py \
@@ -178,6 +178,6 @@ conda run -n DV python workers/macos/goodnotes_controller.py \
 현재 worker 기본 올가미 설정은 실제 GoodNotes 테스트에서 안정적으로 닫힌 `lasso_padding=40`, `lasso_drag_duration=1.5`, `lasso_point_count=160`, `lasso_close_overlap=48`을 사용한다. 올가미가 너무 타이트하거나 주변 stroke를 놓치면 `--lasso_padding 60`처럼 padding을 더 늘린다.
 GoodNotes 올가미는 macOS drag event가 필요할 수 있으므로 기본 `lasso_driver`는 `drag`이다. 커서는 움직이는데 파란 올가미 파선이 생기지 않으면 `down_move` 방식이 아니라 `drag` 방식인지 먼저 확인한다. `pyautogui`의 정식 modifier 이름은 `cmd`가 아니라 `command`이므로 config의 복사 단축키는 `command+c`를 사용한다.
 stroke 입력은 Swift/Quartz backend를 쓰더라도 올가미는 기본적으로 `lasso_input_backend=pyautogui`를 사용한다. 기존에 성공한 올가미 경로가 PyAutoGUI `dragTo(..., mouseDownUp=False)` 기반이기 때문에, Swift `drag_path`로 바꾸면 GoodNotes가 선택 제스처를 다르게 해석할 수 있다.
-Quartz replay 직후 GoodNotes가 아직 ink stroke를 커밋 중이면 `cmd+l`이 늦게 처리되어 올가미 경로가 펜으로 그려질 수 있다. 이 경우 `quartz_post_draw_delay`를 `1.0` 이상으로 늘려 stroke 입력과 올가미 전환 사이의 여유를 더 둔다.
+Quartz replay 직후 GoodNotes가 아직 ink stroke를 커밋 중이면 `cmd+l`이 늦게 처리되어 올가미 경로가 펜으로 그려질 수 있다. 기본 `quartz_post_draw_delay=1.2`, `lasso_tool_delay=1.0`으로 stroke 커밋과 올가미 전환 사이의 여유를 둔다.
 사각형 올가미의 마지막 부분이 물방울처럼 닫히면 `--lasso_close_overlap 32`처럼 시작 변을 겹쳐 지나가게 하거나 `--lasso_point_count 160`으로 중간점을 늘린다. 사각형 모서리 닫힘이 계속 불안정하면 `--lasso_shape ellipse`로 넓게 감싸는 방식도 테스트한다.
 펜 replay도 같은 이유로 한 stroke 안에서는 mouseDown을 유지한 채 macOS drag event를 이어서 보낸다. point마다 `dragTo()`를 독립 실행하면 GoodNotes에서 획이 잘게 끊겨 들어가고 획 지우개/올가미 동작이 불안정해질 수 있다.

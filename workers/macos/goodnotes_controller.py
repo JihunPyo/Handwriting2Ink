@@ -59,7 +59,7 @@ class ControllerConfig:
     quartz_min_stroke_duration: float = 0.035
     quartz_event_interval: float = 0.004
     quartz_stroke_velocity: float = 100.0
-    quartz_post_draw_delay: float = 0.8
+    quartz_post_draw_delay: float = 1.2
     lasso_input_backend: str = "pyautogui"
     lasso_driver: str = "drag"
     lasso_shape: str = "rectangle"
@@ -67,7 +67,7 @@ class ControllerConfig:
     lasso_close_overlap: float = 32.0
     lasso_padding: float = 24.0
     lasso_drag_duration: float = 0.8
-    lasso_tool_delay: float = 0.6
+    lasso_tool_delay: float = 1.0
     copy_hotkey: str = "command+c"
     copy_delay: float = 0.8
     copy_retries: int = 2
@@ -139,7 +139,7 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="올가미 드래그 입력 방식. macOS/GoodNotes에서는 drag 권장",
     )
-    parser.add_argument("--lasso_tool_delay", type=float, default=None, help="cmd+l 후 올가미 입력 전 대기 시간")
+    parser.add_argument("--lasso_tool_delay", type=float, default=None, help="cmd+l 후 올가미 전환 대기 시간")
     parser.add_argument("--copy_hotkey", default=None, help="복사 단축키. 기본값 command+c")
     parser.add_argument("--copy_delay", type=float, default=None, help="올가미 mouseUp 후 복사 전 대기 시간")
     parser.add_argument("--copy_retries", type=int, default=None, help="복사 단축키 반복 횟수")
@@ -285,7 +285,7 @@ def controller_config(raw: dict[str, Any], args: argparse.Namespace) -> Controll
     quartz_post_draw_delay = (
         args.quartz_post_draw_delay
         if args.quartz_post_draw_delay is not None
-        else float(section.get("quartz_post_draw_delay", raw.get("quartz_post_draw_delay", 0.8)))
+        else float(section.get("quartz_post_draw_delay", raw.get("quartz_post_draw_delay", 1.2)))
     )
     lasso_input_backend = (
         args.lasso_input_backend
@@ -320,7 +320,7 @@ def controller_config(raw: dict[str, Any], args: argparse.Namespace) -> Controll
     lasso_tool_delay = (
         args.lasso_tool_delay
         if args.lasso_tool_delay is not None
-        else float(section.get("lasso_tool_delay", 0.6))
+        else float(section.get("lasso_tool_delay", 1.0))
     )
     copy_hotkey = args.copy_hotkey or section.get("copy_hotkey") or "command+c"
     copy_delay = (
@@ -565,7 +565,7 @@ def send_hotkey(hotkey: str) -> None:
     keys = [aliases.get(part.strip().lower(), part.strip().lower()) for part in hotkey.split("+") if part.strip()]
     if not keys:
         raise RuntimeError("단축키가 비어 있습니다.")
-    pyautogui.hotkey(*keys)
+    pyautogui.hotkey(*keys, interval=0.08)
     time.sleep(0.2)
 
 
@@ -599,6 +599,9 @@ def select_pen(config: ControllerConfig, skip_pen_select: bool) -> None:
 def select_lasso(config: ControllerConfig) -> None:
     if config.tool_select_mode != "hotkey":
         raise RuntimeError("올가미 선택은 현재 hotkey 모드만 지원합니다.")
+    activate_goodnotes()
+    frontmost = require_frontmost_goodnotes()
+    print(f"lasso shortcut target: {frontmost}")
     send_hotkey(config.lasso_hotkey)
 
 

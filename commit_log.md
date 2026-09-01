@@ -1,5 +1,12 @@
 # Commit Log
 
+## 2026-09-01 Goodnotes 올가미 자동 전환 안정화
+
+- 로컬 Goodnotes에서 검증된 펜 `cmd+p`, 올가미 `cmd+l` 단축키를 유지했다.
+- 올가미 단축키 전송 직전에 Goodnotes를 다시 활성화하고 전면 앱 여부를 확인하도록 보강했다.
+- 키 조합 전송 간격을 추가해 modifier와 문자 키가 너무 빠르게 전달되지 않도록 했다.
+- `quartz_post_draw_delay=1.2`, `lasso_tool_delay=1.0`으로 stroke 커밋과 올가미 전환 대기 시간을 늘렸다.
+
 ## 2026-09-01 포트폴리오용 모노레포 구조 정리
 
 - FastAPI 서버를 `backend/`, iPadOS 앱을 `frontend/ipados/`, Mac GUI 워커를 `workers/macos/`로 분리했다.
