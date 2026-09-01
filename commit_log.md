@@ -1,5 +1,11 @@
 # Commit Log
 
+## 2026-09-01 로컬 분석 산출물 분리
+
+- `scripts/poster_crop_effect_analysis.py`는 재현 가능한 분석 코드로 추적했다.
+- `output/`, `outputs/`, 화면 녹화 파일은 로컬 생성물로 분류해 `.gitignore`에서 제외했다.
+- 포트폴리오에 사용할 결과물은 추후 `docs/assets/`에 선별해서 추가하도록 분리했다.
+
 ## 2026-06-05 GoodNotes 올가미 backend 분리
 
 - `mac_worker/goodnotes_controller.py`에 `lasso_input_backend` 설정을 추가했다.

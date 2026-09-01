@@ -8,6 +8,9 @@ __pycache__/
 server/storage/
 mac_worker/jobs/
 mac_worker/config.local.json
+output/
+outputs/
+*.mov
 *.zip
 *.xcuserstate
 xcuserdata/
