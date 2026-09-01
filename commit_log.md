@@ -1,5 +1,14 @@
 # Commit Log
 
+## 2026-09-01 포트폴리오용 모노레포 구조 정리
+
+- FastAPI 서버를 `backend/`, iPadOS 앱을 `frontend/ipados/`, Mac GUI 워커를 `workers/macos/`로 분리했다.
+- OCR·스켈레톤·stroke 추출 코드를 `backend/pipeline/`으로 이동하고 서버 실행 경로와 import를 갱신했다.
+- 개발 계획, E2E 문서, 조사 보고서를 `docs/`로 이동하고 향후 선별 이미지를 둘 `docs/assets/`를 마련했다.
+- 테스트 확장을 위해 `tests/backend/`, `tests/pipeline/`, `tests/worker/` 경계를 마련했다.
+- 기존 런타임 데이터와 로컬 설정이 새 경로에서도 추적되지 않도록 `.gitignore`를 갱신했다.
+- 루트 포트폴리오 `README.md`는 별도 작업 대상으로 남겼다.
+
 ## 2026-09-01 로컬 분석 산출물 분리
 
 - `scripts/poster_crop_effect_analysis.py`는 재현 가능한 분석 코드로 추적했다.

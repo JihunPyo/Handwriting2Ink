@@ -13,8 +13,10 @@ import cv2
 import numpy as np
 
 PROJECT_ROOT = Path(__file__).resolve().parents[1]
-if str(PROJECT_ROOT) not in sys.path:
-    sys.path.insert(0, str(PROJECT_ROOT))
+PIPELINE_ROOT = PROJECT_ROOT / "backend" / "pipeline"
+for import_root in (PROJECT_ROOT, PIPELINE_ROOT):
+    if str(import_root) not in sys.path:
+        sys.path.insert(0, str(import_root))
 
 from render_strokes import (
     collect_target_crop_specs,

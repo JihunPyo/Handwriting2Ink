@@ -57,7 +57,7 @@ def main() -> None:
         os.environ["H2I_STROKE_MODE"] = "mock"
         os.environ["H2I_WORKER_TOKEN"] = WORKER_TOKEN
 
-        from server.app.main import app
+        from backend.app.main import app
 
         client = TestClient(app)
         worker_headers = {

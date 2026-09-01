@@ -5,11 +5,12 @@ __pycache__/
 .paddlex_cache/
 .xdg_cache/
 
-server/storage/
-mac_worker/jobs/
-mac_worker/config.local.json
+backend/storage/
+workers/macos/jobs/
+workers/macos/config.local.json
 output/
 outputs/
+pilot_outputs/
 *.mov
 *.zip
 *.xcuserstate

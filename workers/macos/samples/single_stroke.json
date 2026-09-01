@@ -1,0 +1,27 @@
+{
+  "input_path": "workers/macos/samples/single_stroke.json",
+  "scale": 1.0,
+  "crop_scale": 1.0,
+  "region_source": "manual_smoke",
+  "shape_rendering": "manual_smoke",
+  "coordinate_system": {
+    "global_points": "reference image coordinates",
+    "point_order": "[x, y]"
+  },
+  "total_stroke_count": 1,
+  "strokes": [
+    {
+      "id": 1,
+      "region_type": "manual_smoke",
+      "bbox": [100, 100, 300, 80],
+      "point_count": 5,
+      "global_points": [
+        [100, 140],
+        [175, 100],
+        [250, 140],
+        [325, 100],
+        [400, 140]
+      ]
+    }
+  ]
+}
