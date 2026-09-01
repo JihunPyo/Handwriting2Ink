@@ -1,5 +1,11 @@
 # Commit Log
 
+## 2026-09-01 Handwriting2Ink 앱 로고 추가
+
+- 이미지의 픽셀 정보가 연속적인 잉크 stroke와 펜촉으로 변환되는 서비스 흐름을 앱 아이콘으로 시각화했다.
+- `docs/assets/handwriting2ink-app-icon.png`에 iPadOS용 1024x1024 불투명 PNG 원본을 추가했다.
+- 운영체제의 아이콘 마스크가 적용되도록 배경을 정사각형 전체에 채우고, 별도의 둥근 모서리나 투명 영역은 포함하지 않았다.
+
 ## 2026-09-01 Goodnotes 올가미 자동 전환 안정화
 
 - 로컬 Goodnotes에서 검증된 펜 `cmd+p`, 올가미 `cmd+l` 단축키를 유지했다.
