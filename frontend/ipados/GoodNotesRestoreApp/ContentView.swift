@@ -34,6 +34,8 @@ struct ContentView: View {
     }
 
     var body: some View {
+        let imagePickerLabel = imageData == nil ? "이미지 선택" : "다른 이미지 선택"
+
         NavigationStack {
             Form {
                 Section("서버") {
@@ -51,7 +53,7 @@ struct ContentView: View {
 
                 Section("이미지") {
                     PhotosPicker(selection: $selectedItem, matching: .images) {
-                        Label(imageData == nil ? "이미지 선택" : "다른 이미지 선택", systemImage: "photo")
+                        Label(imagePickerLabel, systemImage: "photo")
                     }
 
                     if let previewImage {
@@ -168,7 +170,7 @@ struct ContentView: View {
     }
 
     private func poll(jobId: String, apiClient: APIClient) async throws -> JobStatusResponse {
-        while true {
+        while !Task.isCancelled {
             let current = try await apiClient.fetchJob(jobId: jobId)
             job = current
             message = current.message ?? "서버 처리를 기다리고 있습니다."
@@ -179,6 +181,8 @@ struct ContentView: View {
 
             try await Task.sleep(nanoseconds: 2_000_000_000)
         }
+
+        throw CancellationError()
     }
 
     private func copyBinary(jobId: String) async {
@@ -216,4 +220,7 @@ private enum RestoreError: LocalizedError {
             return message
         }
     }
+}
+#Preview {
+    ContentView()
 }

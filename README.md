@@ -16,9 +16,7 @@
 
 ## 프로젝트 소개
 
-Handwriting2Ink는 종이에 작성한 필기를 촬영해 업로드하면, 필기 위치와 형태를 그대로 반영하여 Goodnotes에서 붙여넣을 수 있는 필기 객체로 변환하는 서비스이다.
-
-단순히 필기 사진을 문서에 삽입하는 방식과 달리, Handwritng2Ink는 'Goodenotes'에서 직접 수정할 수 있는 글씨로 변환해준다.
+Handwriting2Ink는 종이에 작성한 필기를 촬영해 업로드하면, 필기 위치와 형태를 그대로 반영하여 Goodnotes(태블릿 PC 필기 앱)에서 붙여넣을 수 있는 필기 객체로 변환하는 서비스입니다.
 
 ```text
 손글씨 이미지
@@ -28,6 +26,14 @@ Handwriting2Ink는 종이에 작성한 필기를 촬영해 업로드하면, 필�
 → 올가미 복사 및 binary 추출
 → iPad 클립보드 전달
 ```
+
+단순히 필기 사진을 문서에 삽입하는 방식과 달리, Handwritng2Ink는 위의 과정을 통해 손글씨 종이 필기를 Goodenotes에서 직접 수정할 수 있는 글씨로 변환해줍니다.
+
+
+![서비스 introduction](docs/assets/H2I-image2.png)
+<div align="center">
+  <p><strong>Handwriting2Ink를 활용한 필기 복원 예시</strong></p>
+</div>
 
 ## 문제 의식 🚨
 
@@ -44,33 +50,30 @@ Handwriting2Ink는 종이에 작성한 필기를 촬영해 업로드하면, 필�
 
 - OCR은 글자를 텍스트로 바꾸지만 필기체의 형태와 공간 배치를 보존하기 어려움.
 - 손글씨 특유의 도형, 화살표와 같은 다이어그램을 보존할 수 없음. 
-- 스캔 이미지는 Goodnotes에서 개별 획로 선택하거나 수정할 수 없다.
-- 사람이 필기를 다시 따라 그리는 방식은 문서가 많을수록 반복 비용이 커진다.
+- 스캔 이미지는 Goodnotes에서 개별 획로 선택하거나 수정할 수 없음.
+- 사람이 필기를 다시 따라 그리는 방식은 문서가 많을수록 반복 비용이 커짐.
 
 ### H2I (Ours)
-- 이미지를 입력받아, 독자 개발한 알고리즘을 통하여 Strokes.json (마우스 포인트가 지나가야 할 좌표열)을 복원.
+- 이미지를 입력받아, **독자 개발한 알고리즘**을 통하여 Strokes.json (마우스 포인트가 지나가야 할 좌표열)을 복원.
 - 복원된 Strokes.json을 활용하여, 사용자가 iPad에서 직접 Goodnotes에 붙여넣기 할 수 있도록 클립보드에 삽입.
-- 사용자는 Goodnotes에서 올가미, 지우개, 형광펜 등을 활용하여 자유롭게 수정 가능!
+- 사용자는 Goodnotes에서 올가미, 지우개, 형광펜 등을 활용하여 자유롭게 수정 가능! ✅
 
-## 결과 화면 및 데모
+## 데모 영상 📹
+### 전체 서비스 활용 과정과 서버(Mac GUI Worker) 동작 과정
 
-### 전처리 개선 결과
 
-OCR로 필기 영역을 먼저 분리한 뒤 전처리를 적용해, 배경 노이즈를 줄이고 stroke 후보를 더 선명하게 추출했다.
 
-![전처리 개선 전후 비교](docs/assets/preprocessing-comparison.png)
+[![iPad 앱과 Mac GUI 워커 데모 영상](https://img.youtube.com/vi/Ik74j1NbrQU/maxresdefault.jpg)](https://youtube.com/shorts/Ik74j1NbrQU)
+
+<div align="center">
+  <p> 클릭시 데모 영상으로 이동!</p>
+</div>
 
 ### iPad 앱과 Mac GUI 워커
 
 iPad 앱은 이미지 업로드와 job 상태 확인, 최종 Goodnotes binary의 클립보드 기록을 담당한다. Mac GUI 워커는 서버에서 받은 stroke를 Goodnotes에 재생하고 올가미 복사 결과를 서버로 반환한다.
 
-![iPad 앱과 Mac GUI 워커 구현 화면](docs/assets/ipad-mac-preview.png)
-
-> [!IMPORTANT]
-> **최종 데모 영상 링크가 필요하다.** 공개 URL과 썸네일을 추가하면 이 영역을 클릭 가능한 영상 카드로 교체할 예정이다.
-
-> [!NOTE]
-> **추가 이미지가 필요하다.** 동일한 원본 필기 이미지와 Goodnotes 붙여넣기 완료 화면을 한 쌍으로 제공하면 최종 Before/After 비교 화면을 추가할 수 있다.
+![iPad 앱과 Mac GUI 워커 구현 화면](docs/assets/H2I-image3.png)
 
 ## 시스템 아키텍처
 
@@ -134,6 +137,8 @@ conda run -n DV python -m uvicorn backend.app.main:app \
 - [iPadOS 앱 실행](frontend/ipados/README.md)
 - [Mac GUI 워커 설정 및 검증](workers/macos/README.md)
 - [상세 구현 계획과 API 계약](docs/development-plan.md)
+
+
 
 ## 한계 및 향후 개선
 

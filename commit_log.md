@@ -303,3 +303,11 @@
   - 1장에는 포스터용 요약표와 감소율 카드 3개를 배치했다.
   - 2장에는 사용자가 제공한 raw metric table 전체 컬럼을 appendix 형식으로 정리했다.
   - artifact-tool 렌더 preview와 layout quality 검사를 수행했고, 최종 검사에서 error 0개를 확인했다.
+
+## 2026-09-01 iPad Canvas 빌드 반환 경로 보완
+
+- `frontend/ipados/GoodNotesRestoreApp/ContentView.swift`의 `poll` 메서드를 취소 가능한 polling 루프로 수정했다.
+  - `while true`를 `while !Task.isCancelled`로 변경하고, 반복문 종료 시 `CancellationError`를 명시적으로 throw하도록 했다.
+  - 모든 실행 경로에서 `JobStatusResponse` 반환 또는 오류 전파가 보장되어 Swift 컴파일러의 누락된 반환값 오류를 해결했다.
+- `PhotosPicker` 라벨 텍스트를 body에서 미리 계산해 Sendable 클로저가 `@State`를 직접 참조하지 않도록 변경했다.
+  - Xcode 26.4의 Main Actor 격리 동시성 경고를 제거했다.
