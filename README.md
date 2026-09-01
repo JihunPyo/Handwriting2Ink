@@ -35,6 +35,13 @@ Handwriting2Ink는 종이에 작성한 필기를 촬영해 업로드하면, 필�
   <p><strong>Handwriting2Ink를 활용한 필기 복원 예시</strong></p>
 </div>
 
+## 팀 구성
+
+| 팀원 | 담당 역할 |
+| --- | --- |
+| 이세혁 | 백엔드 서버 개발, 알고리즘 성능 평가용 데이터 제작 |
+| 표지훈(Me) | 스트로크 복원 코어 알고리즘 개발, Mac GUI 워커·iPad 클라이언트 앱 개발, 알고리즘 성능 평가용 데이터 제작  |
+
 ## 문제 의식 🚨
 
 - 종이 필기는 자유롭게 메모하고 구조를 표현하기 좋지만 검색,분류,재사용이 어려움. 
@@ -97,7 +104,7 @@ PaddleOCR로 텍스트 영역을 검출하고, 영역별 crop을 생성해 배�
 
 OpenCV 전처리와 Zhang-Suen thinning으로 필기선을 1px skeleton으로 변환한다. 이후 8-neighbor 그래프를 구성하고 끝점·분기점을 기준으로 segment를 생성·병합해 stroke 좌표열을 만든다.
 
-![OCR부터 stroke 생성까지의 파이프라인](docs/assets/stroke-pipeline.png)
+![OCR부터 stroke 생성까지의 파이프라인](docs/assets/H2I-코어알고리즘.png)
 
 ### 3. Goodnotes GUI 자동화
 
@@ -157,11 +164,4 @@ conda run -n DV python -m uvicorn backend.app.main:app \
 - 복잡한 표·도형·수식에 대한 layout 및 stroke 복원 품질 개선
 - iPad 앱의 실시간 진행률, 재시도, 실패 복구 UX 보강
 
-## 팀 구성
 
-2026년 1학기 데이터분석캡스톤디자인 프로젝트로 진행했다.
-
-| 팀원 | 담당 역할 |
-| --- | --- |
-| 이세혁 | 백엔드 서버 개발, 알고리즘 성능 평가용 데이터 제작 |
-| 표지훈 | 스트로크 복원 코어 알고리즘 개발, Mac GUI 워커·iPad 클라이언트 앱 개발, 알고리즘 성능 평가용 데이터 제작  |
