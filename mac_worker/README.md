@@ -57,6 +57,9 @@ input_backend: quartz 또는 pyautogui. 기본값은 quartz
 quartz_point_delay: Quartz backend의 point 사이 입력 지연
 quartz_stroke_delay: Quartz backend의 stroke 사이 입력 지연
 quartz_mouse_down_delay: Quartz backend에서 mouseDown 직후 drag 시작 전 대기 시간
+quartz_min_stroke_duration: Quartz backend에서 stroke별 mouseDown을 최소 유지하는 시간
+quartz_event_interval: Quartz backend에서 길이 기반 replay point를 보내는 간격
+quartz_stroke_velocity: Quartz backend에서 경로 길이 기준으로 잡는 목표 stroke 속도(px/s)
 quartz_post_draw_delay: Quartz backend에서 stroke 입력 후 올가미 전환 전 대기 시간
 driver: pyautogui fallback에서 drag 또는 down_move
 point_delay: pyautogui fallback의 point 사이 입력 지연
@@ -146,7 +149,7 @@ conda run -n DV python mac_worker/goodnotes_controller.py \
 
 `--strokes`가 지정되면 중앙 테스트 선 대신 `strokes.json` 기반 replay를 수행한다. 처음에는 `sample_step`을 크게 잡아 위치와 입력 가능성을 확인할 수 있지만, 실제 품질 확인과 worker 기본 실행은 `sample_step=1`을 사용한다. `sample_step=10`처럼 큰 값은 곡선과 자소가 직선화되어 글씨가 크게 뭉개질 수 있다. 대신 `min_point_distance=1.0`으로 중복/초근접 point만 제거해 mouseDown 상태에서 같은 위치에 오래 머무르는 입력을 줄인다.
 
-기본 `input_backend=quartz`는 `mac_worker/goodnotes_quartz_replay.swift`를 `/private/tmp/h2i_goodnotes_quartz_replay`로 lazy compile한 뒤 `CGEvent` 기반 mouse event를 직접 전송한다. Swift module cache는 `/private/tmp/h2i_clang_module_cache`를 사용한다. Quartz 이벤트를 너무 빠르게 보내면 GoodNotes가 drag point를 일부 병합하거나 놓쳐 글씨 획이 끊길 수 있으므로, 기본값은 `quartz_point_delay=0.0015`, `quartz_stroke_delay=0.008`, `quartz_mouse_down_delay=0.006`으로 둔다. 기존 pyautogui 경로로 비교하거나 되돌리려면 `--input_backend pyautogui`를 명시한다.
+기본 `input_backend=quartz`는 `mac_worker/goodnotes_quartz_replay.swift`를 `/private/tmp/h2i_goodnotes_quartz_replay`로 lazy compile한 뒤 `CGEvent` 기반 mouse event를 직접 전송한다. Swift module cache는 `/private/tmp/h2i_clang_module_cache`를 사용한다. Quartz 이벤트를 너무 빠르게 보내면 GoodNotes가 drag point를 일부 병합하거나 놓쳐 글씨 획이 끊길 수 있으므로, 기본값은 `quartz_event_interval=0.004`, `quartz_stroke_velocity=100`, `quartz_stroke_delay=0.008`, `quartz_mouse_down_delay=0.006`, `quartz_min_stroke_duration=0.035`로 둔다. Swift replay는 원본 point를 그대로 큐에 밀어 넣지 않고, stroke 경로 길이에 맞춰 시간을 배분한 뒤 균일한 간격으로 보간 좌표를 보낸다. 특히 한글 자소와 문장부호처럼 짧은 stroke는 down/up이 너무 빠르면 GoodNotes가 입력으로 받아들이지 않을 수 있으므로 `quartz_min_stroke_duration`을 먼저 조정한다. 기존 pyautogui 경로로 비교하거나 되돌리려면 `--input_backend pyautogui`를 명시한다.
 
 ```bash
 conda run -n DV python mac_worker/goodnotes_controller.py \
@@ -174,6 +177,7 @@ conda run -n DV python mac_worker/goodnotes_controller.py \
 
 현재 worker 기본 올가미 설정은 실제 GoodNotes 테스트에서 안정적으로 닫힌 `lasso_padding=40`, `lasso_drag_duration=1.5`, `lasso_point_count=160`, `lasso_close_overlap=48`을 사용한다. 올가미가 너무 타이트하거나 주변 stroke를 놓치면 `--lasso_padding 60`처럼 padding을 더 늘린다.
 GoodNotes 올가미는 macOS drag event가 필요할 수 있으므로 기본 `lasso_driver`는 `drag`이다. 커서는 움직이는데 파란 올가미 파선이 생기지 않으면 `down_move` 방식이 아니라 `drag` 방식인지 먼저 확인한다. `pyautogui`의 정식 modifier 이름은 `cmd`가 아니라 `command`이므로 config의 복사 단축키는 `command+c`를 사용한다.
+stroke 입력은 Swift/Quartz backend를 쓰더라도 올가미는 기본적으로 `lasso_input_backend=pyautogui`를 사용한다. 기존에 성공한 올가미 경로가 PyAutoGUI `dragTo(..., mouseDownUp=False)` 기반이기 때문에, Swift `drag_path`로 바꾸면 GoodNotes가 선택 제스처를 다르게 해석할 수 있다.
 Quartz replay 직후 GoodNotes가 아직 ink stroke를 커밋 중이면 `cmd+l`이 늦게 처리되어 올가미 경로가 펜으로 그려질 수 있다. 이 경우 `quartz_post_draw_delay`를 `1.0` 이상으로 늘려 stroke 입력과 올가미 전환 사이의 여유를 더 둔다.
 사각형 올가미의 마지막 부분이 물방울처럼 닫히면 `--lasso_close_overlap 32`처럼 시작 변을 겹쳐 지나가게 하거나 `--lasso_point_count 160`으로 중간점을 늘린다. 사각형 모서리 닫힘이 계속 불안정하면 `--lasso_shape ellipse`로 넓게 감싸는 방식도 테스트한다.
 펜 replay도 같은 이유로 한 stroke 안에서는 mouseDown을 유지한 채 macOS drag event를 이어서 보낸다. point마다 `dragTo()`를 독립 실행하면 GoodNotes에서 획이 잘게 끊겨 들어가고 획 지우개/올가미 동작이 불안정해질 수 있다.

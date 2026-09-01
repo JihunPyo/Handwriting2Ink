@@ -1,13 +1,30 @@
 # Commit Log
 
+## 2026-06-05 GoodNotes 올가미 backend 분리
+
+- `mac_worker/goodnotes_controller.py`에 `lasso_input_backend` 설정을 추가했다.
+  - stroke 입력은 `input_backend=quartz`를 유지하되, 올가미 입력은 기존에 성공한 `pyautogui` drag 경로를 기본으로 쓰도록 분리했다.
+  - Swift `drag_path` 경로가 GoodNotes 올가미 선택 제스처를 다르게 해석할 수 있어, `lasso_driver=drag` 설정이 실제로 적용되는 PyAutoGUI 경로로 되돌렸다.
+- `mac_worker/config.json`의 `goodnotes_controller.lasso_input_backend` 기본값을 `pyautogui`로 추가했다.
+- `mac_worker/README.md`에 stroke backend와 lasso backend를 분리한 이유를 기록했다.
+
+## 2026-06-05 Quartz stroke 재생 속도 하향 조정
+
+- `mac_worker/config.json`과 `mac_worker/goodnotes_controller.py`의 `goodnotes_controller.quartz_stroke_velocity` 기본값을 `100.0`으로 통일했다.
+  - GoodNotes가 Quartz drag 경로를 더 촘촘하게 샘플링할 수 있도록 stroke 재생 시간을 크게 늘리기 위한 조정이다.
+
 ## 2026-06-05 Swift Quartz replay 품질 안정화
 
 - `mac_worker/goodnotes_quartz_replay.swift`의 Quartz 이벤트 입력을 보강했다.
   - `CGEventSource(.hidSystemState)`와 click state를 명시해 mouse event 성격을 더 안정적으로 전달하도록 했다.
+  - button number, pressure, non-coalesced flag를 명시해 drag event가 GoodNotes에서 병합/누락되는 문제를 줄이도록 했다.
   - mouseDown 직후 짧은 대기를 추가해 GoodNotes가 stroke 시작을 놓치는 문제를 줄이도록 했다.
+  - 원본 point를 그대로 빠르게 밀어 넣지 않고, stroke 경로 길이와 목표 속도에 맞춰 보간 좌표를 일정 간격으로 보내도록 했다.
 - `mac_worker/goodnotes_controller.py`와 `mac_worker/config.json`의 Quartz 기본 속도를 조정했다.
   - `quartz_point_delay`를 `0.0015`, `quartz_stroke_delay`를 `0.008`로 조정했다.
   - `quartz_mouse_down_delay=0.006`을 추가했다.
+  - 짧은 자소/문장부호 stroke가 무시되지 않도록 `quartz_min_stroke_duration=0.035`를 추가했다.
+  - 길이 기반 replay용 `quartz_event_interval=0.004`, `quartz_stroke_velocity=650.0`을 추가했다.
   - stroke 입력 직후 올가미 전환 전 `quartz_post_draw_delay=0.8` 대기를 추가했다.
 - `mac_worker/README.md`에 Quartz 이벤트가 너무 빠를 때 GoodNotes가 point를 병합/누락할 수 있다는 내용과 조정 방법을 기록했다.
 
@@ -219,3 +236,22 @@
   - `conda run -n DV python -m compileall server mac_worker` 문법 검증을 통과했다.
   - FastAPI `TestClient`로 업로드부터 binary 다운로드까지 목 E2E API 흐름을 확인했다.
 - 로컬 런타임 산출물을 제외하기 위해 `.gitignore`를 추가했다.
+
+## 2026-06-05 포스터용 OCR Crop 전처리 효과 분석
+
+- `scripts/poster_crop_effect_analysis.py`를 추가했다.
+  - 발표 문서의 원본 이미지와 pipeline 산출물을 기준으로 전체 이미지 직접 처리와 OCR crop 처리의 정량 지표를 계산하도록 했다.
+  - 전경 픽셀, 스켈레톤 픽셀, 연결 성분, 끝점, 교차점, raw segment, 최종 stroke 수를 CSV와 마크다운으로 저장하도록 했다.
+- `output/poster_crop_analysis/`에 포스터 결과 영역용 산출물을 생성했다.
+  - `source_original.jpeg`에 발표 문서 원본 이미지를 저장했다.
+  - `pipeline/`에 OCR layout, crop debug, stroke composite 결과를 생성했다.
+  - `crop_effect_metrics.csv`, `crop_effect_metrics_by_crop.csv`, `crop_effect_analysis.md`를 생성했다.
+  - `whole_direct_binary.png`, `whole_direct_skeleton.png`, `whole_direct_stroke_result.png`, `whole_direct_black.png`를 생성했다.
+- 분석 결과를 기록했다.
+  - 동일 해상도 기준 OCR crop 처리 영역은 전체 이미지 대비 36.2%로 계산되었다.
+  - 전체 이미지 직접 처리 대비 OCR crop 처리에서 전경 픽셀은 84.2%, 스켈레톤 픽셀은 65.2%, raw segment 후보는 50.5% 감소했다.
+  - 실제 pipeline crop_scale=2.0 기준으로는 최종 180개 stroke가 생성되었다.
+- `output/poster_crop_analysis/ocr_crop_effect_metrics_table.pptx`를 생성했다.
+  - 1장에는 포스터용 요약표와 감소율 카드 3개를 배치했다.
+  - 2장에는 사용자가 제공한 raw metric table 전체 컬럼을 appendix 형식으로 정리했다.
+  - artifact-tool 렌더 preview와 layout quality 검사를 수행했고, 최종 검사에서 error 0개를 확인했다.

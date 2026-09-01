@@ -55,7 +55,11 @@ class ControllerConfig:
     quartz_point_delay: float = 0.0015
     quartz_stroke_delay: float = 0.008
     quartz_mouse_down_delay: float = 0.006
+    quartz_min_stroke_duration: float = 0.035
+    quartz_event_interval: float = 0.004
+    quartz_stroke_velocity: float = 100.0
     quartz_post_draw_delay: float = 0.8
+    lasso_input_backend: str = "pyautogui"
     lasso_driver: str = "drag"
     lasso_shape: str = "rectangle"
     lasso_point_count: int = 120
@@ -103,7 +107,16 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--quartz_point_delay", type=float, default=None, help="Quartz stroke point 사이 입력 지연")
     parser.add_argument("--quartz_stroke_delay", type=float, default=None, help="Quartz stroke 사이 입력 지연")
     parser.add_argument("--quartz_mouse_down_delay", type=float, default=None, help="Quartz mouseDown 직후 drag 전 대기 시간")
+    parser.add_argument("--quartz_min_stroke_duration", type=float, default=None, help="Quartz stroke별 최소 mouseDown 유지 시간")
+    parser.add_argument("--quartz_event_interval", type=float, default=None, help="Quartz length-paced replay의 이벤트 간격")
+    parser.add_argument("--quartz_stroke_velocity", type=float, default=None, help="Quartz length-paced replay의 목표 stroke 속도(px/s)")
     parser.add_argument("--quartz_post_draw_delay", type=float, default=None, help="Quartz stroke 입력 후 올가미 전환 전 대기 시간")
+    parser.add_argument(
+        "--lasso_input_backend",
+        choices=("quartz", "pyautogui"),
+        default=None,
+        help="올가미 마우스 입력 backend. 기본값은 pyautogui",
+    )
     parser.add_argument(
         "--copy_after_draw",
         action="store_true",
@@ -253,11 +266,34 @@ def controller_config(raw: dict[str, Any], args: argparse.Namespace) -> Controll
         if args.quartz_mouse_down_delay is not None
         else float(section.get("quartz_mouse_down_delay", raw.get("quartz_mouse_down_delay", 0.006)))
     )
+    quartz_min_stroke_duration = (
+        args.quartz_min_stroke_duration
+        if args.quartz_min_stroke_duration is not None
+        else float(section.get("quartz_min_stroke_duration", raw.get("quartz_min_stroke_duration", 0.035)))
+    )
+    quartz_event_interval = (
+        args.quartz_event_interval
+        if args.quartz_event_interval is not None
+        else float(section.get("quartz_event_interval", raw.get("quartz_event_interval", 0.004)))
+    )
+    quartz_stroke_velocity = (
+        args.quartz_stroke_velocity
+        if args.quartz_stroke_velocity is not None
+        else float(section.get("quartz_stroke_velocity", raw.get("quartz_stroke_velocity", 100.0)))
+    )
     quartz_post_draw_delay = (
         args.quartz_post_draw_delay
         if args.quartz_post_draw_delay is not None
         else float(section.get("quartz_post_draw_delay", raw.get("quartz_post_draw_delay", 0.8)))
     )
+    lasso_input_backend = (
+        args.lasso_input_backend
+        or section.get("lasso_input_backend")
+        or raw.get("lasso_input_backend")
+        or "pyautogui"
+    )
+    if lasso_input_backend not in {"quartz", "pyautogui"}:
+        raise ValueError("lasso_input_backend는 quartz 또는 pyautogui여야 합니다.")
     lasso_driver = args.lasso_driver or section.get("lasso_driver") or "drag"
     lasso_shape = args.lasso_shape or section.get("lasso_shape") or "rectangle"
     lasso_point_count = (
@@ -323,7 +359,11 @@ def controller_config(raw: dict[str, Any], args: argparse.Namespace) -> Controll
         quartz_point_delay=quartz_point_delay,
         quartz_stroke_delay=quartz_stroke_delay,
         quartz_mouse_down_delay=quartz_mouse_down_delay,
+        quartz_min_stroke_duration=quartz_min_stroke_duration,
+        quartz_event_interval=quartz_event_interval,
+        quartz_stroke_velocity=quartz_stroke_velocity,
         quartz_post_draw_delay=quartz_post_draw_delay,
+        lasso_input_backend=lasso_input_backend,
         lasso_driver=lasso_driver,
         lasso_shape=lasso_shape,
         lasso_point_count=lasso_point_count,
@@ -488,6 +528,9 @@ def replay_strokes_with_backend(strokes: list[list[Point]], config: ControllerCo
                 "point_delay": max(config.quartz_point_delay, 0.0),
                 "stroke_delay": max(config.quartz_stroke_delay, 0.0),
                 "mouse_down_delay": max(config.quartz_mouse_down_delay, 0.0),
+                "min_stroke_duration": max(config.quartz_min_stroke_duration, 0.0),
+                "event_interval": max(config.quartz_event_interval, 0.0),
+                "stroke_velocity": max(config.quartz_stroke_velocity, 0.0),
             }
         )
         return
@@ -621,7 +664,7 @@ def build_lasso_path(config: ControllerConfig, rect: Rect) -> list[Point]:
 
 def drag_lasso_rect(rect: Rect, config: ControllerConfig) -> None:
     points = build_lasso_path(config, rect)
-    if config.input_backend == "quartz":
+    if config.lasso_input_backend == "quartz":
         run_quartz_payload(
             {
                 "kind": "drag_path",
@@ -747,10 +790,14 @@ def main() -> None:
         print(f"quartz point delay: {config.quartz_point_delay}")
         print(f"quartz stroke delay: {config.quartz_stroke_delay}")
         print(f"quartz mouse down delay: {config.quartz_mouse_down_delay}")
+        print(f"quartz min stroke duration: {config.quartz_min_stroke_duration}")
+        print(f"quartz event interval: {config.quartz_event_interval}")
+        print(f"quartz stroke velocity: {config.quartz_stroke_velocity}")
         print(f"quartz post draw delay: {config.quartz_post_draw_delay}")
         if selection_rect is not None:
             print(f"copy after draw: {args.copy_after_draw}")
             print(f"lasso selection rect: {tuple(round(v, 2) for v in selection_rect)}")
+            print(f"lasso input backend: {config.lasso_input_backend}")
             print(f"lasso driver: {config.lasso_driver}")
             print(f"lasso shape: {config.lasso_shape}")
             print(f"lasso point count: {config.lasso_point_count}")

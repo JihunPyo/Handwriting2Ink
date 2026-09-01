@@ -27,6 +27,9 @@ private struct ReplayPayload: Decodable {
     let pointDelay: Double?
     let strokeDelay: Double?
     let mouseDownDelay: Double?
+    let minStrokeDuration: Double?
+    let eventInterval: Double?
+    let strokeVelocity: Double?
     let dragDuration: Double?
 
     enum CodingKeys: String, CodingKey {
@@ -36,6 +39,9 @@ private struct ReplayPayload: Decodable {
         case pointDelay = "point_delay"
         case strokeDelay = "stroke_delay"
         case mouseDownDelay = "mouse_down_delay"
+        case minStrokeDuration = "min_stroke_duration"
+        case eventInterval = "event_interval"
+        case strokeVelocity = "stroke_velocity"
         case dragDuration = "drag_duration"
     }
 }
@@ -134,6 +140,60 @@ private func sleepSeconds(_ seconds: Double) throws {
     }
 }
 
+private func distance(_ start: CGPoint, _ end: CGPoint) -> Double {
+    hypot(end.x - start.x, end.y - start.y)
+}
+
+private func pathLength(_ points: [ReplayPoint]) -> Double {
+    guard points.count >= 2 else {
+        return 0.0
+    }
+    return zip(points, points.dropFirst()).reduce(0.0) { total, pair in
+        total + distance(pair.0.cgPoint, pair.1.cgPoint)
+    }
+}
+
+private func pointOnPath(_ points: [ReplayPoint], atDistance targetDistance: Double) -> CGPoint {
+    guard points.count >= 2 else {
+        return points.first?.cgPoint ?? .zero
+    }
+    if targetDistance <= 0 {
+        return points[0].cgPoint
+    }
+
+    var remaining = targetDistance
+    for (startPoint, endPoint) in zip(points, points.dropFirst()) {
+        let start = startPoint.cgPoint
+        let end = endPoint.cgPoint
+        let segmentLength = distance(start, end)
+        if segmentLength <= 0 {
+            continue
+        }
+        if remaining <= segmentLength {
+            let ratio = remaining / segmentLength
+            return CGPoint(
+                x: start.x + (end.x - start.x) * ratio,
+                y: start.y + (end.y - start.y) * ratio
+            )
+        }
+        remaining -= segmentLength
+    }
+    return points.last?.cgPoint ?? .zero
+}
+
+private func pacedPath(points: [ReplayPoint], duration: Double, eventInterval: Double) -> [CGPoint] {
+    let totalLength = pathLength(points)
+    guard totalLength > 0 else {
+        return points.last.map { [$0.cgPoint] } ?? []
+    }
+
+    let interval = max(eventInterval, 0.001)
+    let stepCount = max(1, Int(ceil(max(duration, interval) / interval)))
+    return (1...stepCount).map { index in
+        pointOnPath(points, atDistance: totalLength * Double(index) / Double(stepCount))
+    }
+}
+
 private func postMouseEvent(_ type: CGEventType, at point: CGPoint) throws {
     guard let event = CGEvent(
         mouseEventSource: eventSource,
@@ -144,6 +204,9 @@ private func postMouseEvent(_ type: CGEventType, at point: CGPoint) throws {
         throw ReplayError.eventCreationFailed("Failed to create mouse event: \(type.rawValue)")
     }
     event.setIntegerValueField(.mouseEventClickState, value: 1)
+    event.setIntegerValueField(.mouseEventButtonNumber, value: 0)
+    event.setDoubleValueField(.mouseEventPressure, value: type == .leftMouseUp ? 0.0 : 1.0)
+    event.flags = CGEventFlags(rawValue: event.flags.rawValue | CGEventFlags.maskNonCoalesced.rawValue)
     event.post(tap: .cghidEventTap)
 }
 
@@ -161,6 +224,9 @@ private func summarize(_ payload: ReplayPayload) throws {
         print("point delay: \(payload.pointDelay ?? 0.0)")
         print("stroke delay: \(payload.strokeDelay ?? 0.0)")
         print("mouse down delay: \(payload.mouseDownDelay ?? 0.0)")
+        print("min stroke duration: \(payload.minStrokeDuration ?? 0.0)")
+        print("event interval: \(payload.eventInterval ?? 0.0)")
+        print("stroke velocity: \(payload.strokeVelocity ?? 0.0)")
     case "drag_path":
         let points = payload.points ?? []
         guard points.count >= 2 else {
@@ -179,7 +245,10 @@ private func replayStrokes(
     _ strokes: [[ReplayPoint]],
     pointDelay: Double,
     strokeDelay: Double,
-    mouseDownDelay: Double
+    mouseDownDelay: Double,
+    minStrokeDuration: Double,
+    eventInterval: Double,
+    strokeVelocity: Double
 ) throws {
     var mouseIsDown = false
     var lastPoint: CGPoint?
@@ -210,16 +279,34 @@ private func replayStrokes(
         mouseIsDown = true
         try sleepSeconds(mouseDownDelay)
 
-        for point in stroke.dropFirst() {
-            if wasInterrupted {
-                throw ReplayError.interrupted
+        let length = pathLength(stroke)
+        let durationFromVelocity = strokeVelocity > 0 ? length / strokeVelocity : 0.0
+        let targetDuration = max(minStrokeDuration, durationFromVelocity)
+        if strokeVelocity > 0 && eventInterval > 0 {
+            let points = pacedPath(points: stroke, duration: targetDuration, eventInterval: eventInterval)
+            let stepDelay = max(targetDuration, 0.0) / Double(max(points.count, 1))
+            for point in points {
+                if wasInterrupted {
+                    throw ReplayError.interrupted
+                }
+                lastPoint = point
+                try postMouseEvent(.leftMouseDragged, at: point)
+                try sleepSeconds(stepDelay)
             }
-            let cgPoint = point.cgPoint
-            lastPoint = cgPoint
-            try postMouseEvent(.leftMouseDragged, at: cgPoint)
-            try sleepSeconds(pointDelay)
+        } else {
+            for point in stroke.dropFirst() {
+                if wasInterrupted {
+                    throw ReplayError.interrupted
+                }
+                let cgPoint = point.cgPoint
+                lastPoint = cgPoint
+                try postMouseEvent(.leftMouseDragged, at: cgPoint)
+                try sleepSeconds(pointDelay)
+            }
         }
 
+        let scheduledDuration = max(mouseDownDelay, 0.0) + max(targetDuration, Double(max(stroke.count - 1, 0)) * max(pointDelay, 0.0))
+        try sleepSeconds(max(minStrokeDuration, 0.0) - scheduledDuration)
         try postMouseEvent(.leftMouseUp, at: lastPoint ?? start)
         mouseIsDown = false
         try sleepSeconds(strokeDelay)
@@ -277,7 +364,10 @@ private func replay(_ payload: ReplayPayload) throws {
             strokes,
             pointDelay: payload.pointDelay ?? 0.0,
             strokeDelay: payload.strokeDelay ?? 0.0,
-            mouseDownDelay: payload.mouseDownDelay ?? 0.0
+            mouseDownDelay: payload.mouseDownDelay ?? 0.0,
+            minStrokeDuration: payload.minStrokeDuration ?? 0.0,
+            eventInterval: payload.eventInterval ?? 0.0,
+            strokeVelocity: payload.strokeVelocity ?? 0.0
         )
     case "drag_path":
         guard let points = payload.points else {
