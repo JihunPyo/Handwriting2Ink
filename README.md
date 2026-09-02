@@ -10,6 +10,11 @@
     <img src="https://img.shields.io/badge/OpenCV-5C3EE8?style=flat-square&logo=opencv&logoColor=white" alt="OpenCV" />
     <img src="https://img.shields.io/badge/Railway-0B0D0E?style=flat-square&logo=railway&logoColor=white" alt="Railway" />
   </p>
+  <p>
+    <a href="https://www.dbpia.co.kr/pdf/pdfView.do?nodeId=NODE12929802&width=1920">
+      <img src="https://img.shields.io/badge/KCC%202026-학부생부문%20우수상-FFD700?style=flat-square&logo=trophy&logoColor=white" alt="KCC 2026 학부생부문 우수상" />
+    </a>
+  </p>
 </div>
 
 ---
@@ -46,12 +51,17 @@ Handwriting2Ink는 종이에 작성한 필기를 촬영해 업로드하면, 필�
 
 - 종이 필기는 자유롭게 메모하고 구조를 표현하기 좋지만 검색,분류,재사용이 어려움. 
 - 반대로 전자 필기 앱은 관리가 편리하지만, 종이 필기에 비해 학습 효과(이해효과)가 뒤쳐짐.
+- 두 가지 필기 방식(종이, 전자)을 **통합할 수 있는 해결책이 부족**함.
 
 
 ## 해결 방안 ☺️
 
 ### 기존 방안
-종이 필기 사진을 필기앱(Goodnotes 등)에 삽입 / OCR활용 텍스트 변환
+(1) 종이 필기 사진을 필기앱(Goodnotes 등)에 삽입 
+
+     
+
+(2)OCR활용 텍스트 변환
 
 -> 아래와 같은 한계 존재
 
@@ -76,15 +86,10 @@ Handwriting2Ink는 종이에 작성한 필기를 촬영해 업로드하면, 필�
   <p> 클릭시 데모 영상으로 이동!</p>
 </div>
 
-### iPad 앱과 Mac GUI 워커
-
-iPad 앱은 이미지 업로드와 job 상태 확인, 최종 Goodnotes binary의 클립보드 기록을 담당한다. Mac GUI 워커는 서버에서 받은 stroke를 Goodnotes에 재생하고 올가미 복사 결과를 서버로 반환한다.
-
-![iPad 앱과 Mac GUI 워커 구현 화면](docs/assets/H2I-image3.png)
 
 ## 시스템 아키텍처
 
-서비스는 사용자 인터페이스인 iPadOS 앱, 이미지 처리와 job orchestration을 담당하는 FastAPI 서버, Goodnotes GUI 자동화를 담당하는 Mac 워커로 분리되어 있다.
+Handwriting2Ink 서비스는 아래 아키텍쳐 그림과 같이 (1) 사용자가 사용하는 iPadOS 앱, (2) 이미지 처리와 job orchestration을 담당하는 FastAPI 서버, (3) Goodnotes GUI 자동화를 담당하는 Mac 워커로 분리되어 있습니다. 
 
 ![Handwriting2Ink 시스템 아키텍처](docs/assets/H2I-ServiceArchitecture.png)
 
@@ -94,33 +99,45 @@ iPad 앱은 이미지 업로드와 job 상태 확인, 최종 Goodnotes binary의
 | FastAPI 서버 | job 상태 관리, OCR layout, stroke 추출, 워커와 iPad 앱 사이의 결과 중계 |
 | Mac GUI 워커 | `strokes.json` 다운로드, Goodnotes stroke 재생, 올가미 복사, `NSPasteboard` binary 업로드 |
 
+### iPad 앱과 Mac GUI 워커
+
+![iPad 앱과 Mac GUI 워커 구현 화면](docs/assets/H2I-image3.png)
+
+iPad 앱은 이미지 업로드와 job 상태 확인, 최종 Goodnotes binary의 클립보드 기록을 담당합니다. Mac GUI 워커는 서버에서 받은 stroke 좌표열을 Goodnotes에 재생하고 올가미 복사 결과를 서버로 반환합니다.
+
 ## 핵심 기술
+
+아래의 전 과정은 [데모 영상](#데모-영상-📹)에서 확인 가능합니다!
 
 ### 1. OCR 기반 레이아웃 분리
 
-PaddleOCR로 텍스트 영역을 검출하고, 영역별 crop을 생성해 배경과 도형이 stroke 추출 과정에 미치는 영향을 줄였다.
+PaddleOCR로 텍스트 영역을 검출하고, 영역별 crop을 생성해 배경의 노이즈가 stroke 추출 과정에 미치는 영향을 줄였다.
 
 ### 2. Skeleton 기반 stroke 추출
 
-OpenCV 전처리와 Zhang-Suen thinning으로 필기선을 1px skeleton으로 변환한다. 이후 8-neighbor 그래프를 구성하고 끝점·분기점을 기준으로 segment를 생성·병합해 stroke 좌표열을 만든다.
+OpenCV 전처리와 Zhang-Suen thinning으로 필기선을 1px skeleton으로 변환합니다. 이후 8-neighbor 그래프를 구성하고 끝점 및 분기점을 기준으로 segment를 생성,병합해 stroke 좌표열을 만듭니다. 
+
+이 알고리즘은 한국정보과학회 주관 2026 한국컴퓨터종합학술대회(KCC) 학부생부문에 [「손글씨 이미지의 획 경로 재구성을 위한 규칙 기반 알고리즘」](https://www.dbpia.co.kr/pdf/pdfView.do?nodeId=NODE12929802&width=1920)이라는 제목의 논문으로 게재되었으며, 우수상🏆 을 수상하였습니다. 
 
 ![OCR부터 stroke 생성까지의 파이프라인](docs/assets/H2I-코어알고리즘.png)
 
 ### 3. Goodnotes GUI 자동화
 
-Swift Quartz `CGEvent`로 stroke 경로를 실제 마우스 입력처럼 재생한다. 필기 완료 후에는 올가미 선택과 복사를 수행하고, `NSPasteboard`에서 Goodnotes binary를 추출한다.
+Swift Quartz `CGEvent`로 stroke 경로를 실제 마우스 입력처럼 재생합니다. 과하게 빠른 마우스 움직임을 Goodnotes에서 처리하지 못하기에 시행착오를 통해 적절한 속도를 설정하였습니다. 
+
+필기 완료 후에는 올가미 선택과 복사를 수행하고, `NSPasteboard`에서 Goodnotes binary를 추출합니다.
 
 ### 4. 비동기 job orchestration
 
-FastAPI 서버가 업로드부터 `stroke_ready`, `drawing_in_goodnotes`, `bin_ready`, `delivered`까지 상태를 관리한다. iPad 앱과 Mac 워커는 동일한 job 계약을 기준으로 느슨하게 연결된다.
+FastAPI 서버가 업로드부터 `stroke_ready`, `drawing_in_goodnotes`, `bin_ready`, `delivered`까지 job 상태를 관리합니다. iPad 앱과 Mac 워커는 동일한 job 관리 계약을 기준으로 정보를 주고받습니다.
 
 ### 5. iPad 클립보드 브리지
 
-서버에서 받은 binary를 `com.goodnotesapp.goodnotes5.notes` 타입으로 `UIPasteboard`에 기록해, 사용자가 Goodnotes에서 붙여넣을 수 있도록 구현했다.
+서버에서 받은 binary를 `com.goodnotesapp.goodnotes5.notes` 타입으로 `UIPasteboard`에 기록해, 사용자가 Goodnotes에서 붙여넣을 수 있도록 구현하였습니다.
 
 ## Quick Start
 
-아래 명령은 실제 Goodnotes GUI를 조작하지 않고 API 계약과 job 상태 전이를 확인하는 목 E2E 테스트이다.
+아래 명령은 실제 Goodnotes GUI를 조작하지 않고 API 계약과 job 상태 전이를 확인하는 Mock E2E 테스트입니다.
 
 ```bash
 git clone https://github.com/JihunPyo/Handwriting2Ink.git
@@ -137,6 +154,8 @@ conda run -n DV python -m uvicorn backend.app.main:app \
   --reload --host 0.0.0.0 --port 8000
 ```
 
+실제로 Mac GUI워커의 동작하고 싶으시다면, 아래 [상세 실행 문서](#상세-실행-문서)를 참고해주세요!
+
 ## 상세 실행 문서
 
 - [전체 E2E 실행 흐름](docs/e2e-test.md)
@@ -151,10 +170,10 @@ conda run -n DV python -m uvicorn backend.app.main:app \
 
 ### 현재 한계
 
-- Goodnotes GUI 자동화가 창 위치, 화면 배율, 앱 버전과 macOS 접근성 권한에 영향을 받는다.
-- 필기 영역을 고정 좌표로 캘리브레이션해야 하며, GUI 워커가 순차 처리되어 전체 처리 시간이 길다.
-- 복잡한 도형과 교차 stroke에서는 실제 필기 순서와 다른 경로가 생성될 수 있다.
-- 현재 job 저장소는 파일 기반이므로 다중 서버 운영과 장애 복구에 한계가 있다.
+- Goodnotes GUI 자동화가 창 위치, 화면 배율, 앱 버전과 macOS 접근성 권한에 영향을 받음
+- 필기 영역을 고정 좌표로 캘리브레이션해야 하며, **GUI 워커가 순차 처리되**어 전체 처리 시간이 긺
+
+
 
 ### 향후 개선
 
@@ -163,5 +182,6 @@ conda run -n DV python -m uvicorn backend.app.main:app \
 - 내구성 있는 job queue와 object storage 도입
 - 복잡한 표·도형·수식에 대한 layout 및 stroke 복원 품질 개선
 - iPad 앱의 실시간 진행률, 재시도, 실패 복구 UX 보강
+- Mac GUI워커에서 벗어날 수 있도록 API를 갖춘 독자 필기 어플리케이션 개발
 
 
